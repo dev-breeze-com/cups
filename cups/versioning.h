@@ -1,7 +1,7 @@
 /*
  * API versioning definitions for CUPS.
  *
- * Copyright © 2007-2018 by Apple Inc.
+ * Copyright © 2007-2019 by Apple Inc.
  *
  * Licensed under Apache License v2.0.  See the file "LICENSE" for more
  * information.
@@ -22,7 +22,9 @@
  *   - _CUPS_FORMAT(format-index, additional-args-index): Function has a
  *     printf-style format argument followed by zero or more additional
  *     arguments.  Indices start at 1.
- *   - _CUPS_INTERNAL_MSG("msg"): Function is
+ *   - _CUPS_INTERNAL: Function is internal with no replacement API.
+ *   - _CUPS_INTERNAL_MSG("msg"): Function is internal - use specified API
+ *     instead.
  *   - _CUPS_NONNULL((arg list)): Specifies the comma-separated argument indices
  *     are assumed non-NULL.  Indices start at 1.
  *   - _CUPS_NORETURN: Specifies the function does not return.
@@ -63,21 +65,26 @@
 					/* GCC 4.5 or higher */
 #      define _CUPS_HAS_DEPRECATED_WITH_MESSAGE
 #    endif /* __GNUC__ >= 5 */
+#  elif defined(_WIN32)
+#    define __attribute__(...)
 #  endif /* __has_extension */
 
 
 /*
- * Define _CUPS_PRIVATE and _CUPS_PUBLIC visibilty macros for private/public
- * functions...
+ * Define _CUPS_INTERNAL, _CUPS_PRIVATE, and _CUPS_PUBLIC visibilty macros for
+ * internal/private/public functions...
  */
 
 #  ifdef _CUPS_HAS_VISIBILITY
-#    define _CUPS_PRIVATE	__attribute__ ((visibility("hidden")))
+#    define _CUPS_INTERNAL	__attribute__ ((visibility("hidden")))
+#    define _CUPS_PRIVATE	__attribute__ ((visibility("default")))
 #    define _CUPS_PUBLIC	__attribute__ ((visibility("default")))
-#  elif defined(WIN32) && defined(LIBCUPS2_EXPORTS)
-#    define _CUPS_PRIVATE
+#  elif defined(_WIN32) && defined(LIBCUPS2_EXPORTS) && 0
+#    define _CUPS_INTERNAL
+#    define _CUPS_PRIVATE	__declspec(dllexport)
 #    define _CUPS_PUBLIC	__declspec(dllexport)
 #  else
+#    define _CUPS_INTERNAL
 #    define _CUPS_PRIVATE
 #    define _CUPS_PUBLIC
 #  endif /* _CUPS_HAS_VISIBILITY */
@@ -89,7 +96,7 @@
  * Note: Using any of the _CUPS_API macros automatically adds _CUPS_PUBLIC.
  */
 
-#  if defined(__APPLE__) && !defined(_CUPS_SOURCE) && !TARGET_OS_IOS
+#  if defined(__APPLE__) && !defined(_CUPS_SOURCE) && TARGET_OS_OSX
 /*
  * On Apple operating systems, the _CUPS_API_* constants are defined using the
  * API_ macros in <os/availability.h>.
@@ -109,9 +116,9 @@
 #    define _CUPS_API_1_7 API_AVAILABLE(macos(10.9), ios(11.0)) _CUPS_PUBLIC
 #    define _CUPS_API_2_0 API_AVAILABLE(macos(10.10), ios(11.0)) _CUPS_PUBLIC
 #    define _CUPS_API_2_2 API_AVAILABLE(macos(10.12), ios(11.0)) _CUPS_PUBLIC
-#    define _CUPS_API_2_2_4 API_AVAILABLE(macos(10.13), ios(11.0)) _CUPS_PUBLIC
-#    define _CUPS_API_2_2_7 API_AVAILABLE(macos(10.14), ios(11.0)) _CUPS_PUBLIC
-#    define _CUPS_API_2_3 _CUPS_PUBLIC
+#    define _CUPS_API_2_2_4 API_AVAILABLE(macos(10.13), ios(12.0)) _CUPS_PUBLIC
+#    define _CUPS_API_2_2_7 API_AVAILABLE(macos(10.14), ios(13.0)) _CUPS_PUBLIC
+#    define _CUPS_API_2_3 API_AVAILABLE(macos(10.14), ios(13.0)) _CUPS_PUBLIC
 #  else
 #    define _CUPS_API_1_1_19 _CUPS_PUBLIC
 #    define _CUPS_API_1_1_20 _CUPS_PUBLIC
@@ -150,17 +157,29 @@
 #    define _CUPS_DEPRECATED_1_6_MSG(m) _CUPS_PUBLIC
 #    define _CUPS_DEPRECATED_1_7_MSG(m) _CUPS_PUBLIC
 #    define _CUPS_DEPRECATED_2_2_MSG(m) _CUPS_PUBLIC
-#  elif defined(__APPLE__)
+#  elif defined(__APPLE__) && defined(_CUPS_NO_DEPRECATED)
     /*
      * Compiler supports the unavailable attribute, so use it when the code
      * wants to exclude the use of deprecated API.
      */
 #    define _CUPS_DEPRECATED __attribute__ ((unavailable)) _CUPS_PUBLIC
 #    define _CUPS_DEPRECATED_MSG(m) __attribute__ ((unavailable(m))) _CUPS_PUBLIC
-#    define _CUPS_DEPRECATED_1_2_MSG(m) API_DEPRECATED(m, macos(10.2,10.5)) API_UNAVAILABLE(ios) _CUPS_PUBLIC
-#    define _CUPS_DEPRECATED_1_6_MSG(m) API_DEPRECATED(m, macos(10.2,10.8)) API_UNAVAILABLE(ios) _CUPS_PUBLIC
-#    define _CUPS_DEPRECATED_1_7_MSG(m) API_DEPRECATED(m, macos(10.2,10.9)) API_UNAVAILABLE(ios) _CUPS_PUBLIC
-#    define _CUPS_DEPRECATED_2_2_MSG(m) API_DEPRECATED(m, macos(10.2,10.12)) API_UNAVAILABLE(ios) _CUPS_PUBLIC
+#    define _CUPS_DEPRECATED_1_2_MSG(m) API_DEPRECATED(m, macos(10.2,10.5), ios(11.0,11.0)) _CUPS_PUBLIC
+#    define _CUPS_DEPRECATED_1_6_MSG(m) API_DEPRECATED(m, macos(10.2,10.8), ios(11.0,11.0)) _CUPS_PUBLIC
+#    define _CUPS_DEPRECATED_1_7_MSG(m) API_DEPRECATED(m, macos(10.2,10.9), ios(11.0,11.0)) _CUPS_PUBLIC
+#    define _CUPS_DEPRECATED_2_2_MSG(m) API_DEPRECATED(m, macos(10.2,10.12), ios(11.0,11.0)) _CUPS_PUBLIC
+
+#  elif defined(__APPLE__)
+    /*
+     * Just mark things as deprecated...
+     */
+#    define _CUPS_DEPRECATED __attribute__ ((deprecated)) _CUPS_PUBLIC
+#    define _CUPS_DEPRECATED_MSG(m) __attribute__ ((deprecated(m))) _CUPS_PUBLIC
+#    define _CUPS_DEPRECATED_1_2_MSG(m) API_DEPRECATED(m, macos(10.2,10.5), ios(11.0,11.0)) _CUPS_PUBLIC
+#    define _CUPS_DEPRECATED_1_6_MSG(m) API_DEPRECATED(m, macos(10.2,10.8), ios(11.0,11.0)) _CUPS_PUBLIC
+#    define _CUPS_DEPRECATED_1_7_MSG(m) API_DEPRECATED(m, macos(10.2,10.9), ios(11.0,11.0)) _CUPS_PUBLIC
+#    define _CUPS_DEPRECATED_2_2_MSG(m) API_DEPRECATED(m, macos(10.2,10.12), ios(11.0,11.0)) _CUPS_PUBLIC
+
 #  elif defined(_CUPS_HAS_UNAVAILABLE_WITH_MESSAGE) && defined(_CUPS_NO_DEPRECATED)
     /*
      * Compiler supports the unavailable attribute, so use it when the code

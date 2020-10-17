@@ -1,10 +1,11 @@
 /*
  * String functions for CUPS.
  *
- * Copyright 2007-2014 by Apple Inc.
- * Copyright 1997-2007 by Easy Software Products.
+ * Copyright © 2007-2019 by Apple Inc.
+ * Copyright © 1997-2007 by Easy Software Products.
  *
- * Licensed under Apache License v2.0.  See the file "LICENSE" for more information.
+ * Licensed under Apache License v2.0.  See the file "LICENSE" for more
+ * information.
  */
 
 /*
@@ -13,6 +14,7 @@
 
 #define _CUPS_STRING_C_
 #include "cups-private.h"
+#include "debug-internal.h"
 #include <stddef.h>
 #include <limits.h>
 
@@ -144,7 +146,7 @@ _cupsStrDate(char   *buf,		/* I - Buffer */
              size_t bufsize,		/* I - Size of buffer */
 	     time_t timeval)		/* I - Time value */
 {
-  struct tm	*dateval;		/* Local date/time */
+  struct tm	date;			/* Local date/time */
   char		temp[1024];		/* Temporary buffer */
   _cups_globals_t *cg = _cupsGlobals();	/* Per-thread globals */
 
@@ -152,15 +154,15 @@ _cupsStrDate(char   *buf,		/* I - Buffer */
   if (!cg->lang_default)
     cg->lang_default = cupsLangDefault();
 
-  dateval = localtime(&timeval);
+  localtime_r(&timeval, &date);
 
   if (cg->lang_default->encoding != CUPS_UTF8)
   {
-    strftime(temp, sizeof(temp), "%c", dateval);
+    strftime(temp, sizeof(temp), "%c", &date);
     cupsCharsetToUTF8((cups_utf8_t *)buf, temp, (int)bufsize, cg->lang_default->encoding);
   }
   else
-    strftime(buf, bufsize, "%c", dateval);
+    strftime(buf, bufsize, "%c", &date);
 
   return (buf);
 }
@@ -310,21 +312,20 @@ _cupsStrFree(const char *s)		/* I - String to free */
 
   key = (_cups_sp_item_t *)(s - offsetof(_cups_sp_item_t, str));
 
-#ifdef DEBUG_GUARDS
-  if (key->guard != _CUPS_STR_GUARD)
-  {
-    DEBUG_printf(("5_cupsStrFree: Freeing string %p(%s), guard=%08x, "
-                  "ref_count=%d", key, key->str, key->guard, key->ref_count));
-    abort();
-  }
-#endif /* DEBUG_GUARDS */
-
   if ((item = (_cups_sp_item_t *)cupsArrayFind(stringpool, key)) != NULL &&
       item == key)
   {
    /*
     * Found it, dereference...
     */
+
+#ifdef DEBUG_GUARDS
+    if (key->guard != _CUPS_STR_GUARD)
+    {
+      DEBUG_printf(("5_cupsStrFree: Freeing string %p(%s), guard=%08x, ref_count=%d", key, key->str, key->guard, key->ref_count));
+      abort();
+    }
+#endif /* DEBUG_GUARDS */
 
     item->ref_count --;
 

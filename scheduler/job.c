@@ -1,7 +1,7 @@
 /*
  * Job management routines for the CUPS scheduler.
  *
- * Copyright © 2007-2018 by Apple Inc.
+ * Copyright © 2007-2019 by Apple Inc.
  * Copyright © 1997-2007 by Easy Software Products, all rights reserved.
  *
  * Licensed under Apache License v2.0.  See the file "LICENSE" for more
@@ -304,10 +304,12 @@ cupsdCheckJobs(void)
 
         if (cupsdTimeoutJob(job))
 	  continue;
-      }
 
-      cupsdSetJobState(job, IPP_JOB_PENDING, CUPSD_JOB_DEFAULT,
-                       "Job submission timed out.");
+	cupsdSetJobState(job, IPP_JOB_PENDING, CUPSD_JOB_DEFAULT, "Job submission timed out.");
+	cupsdLogJob(job, CUPSD_LOG_ERROR, "Job submission timed out.");
+      }
+      else
+	cupsdSetJobState(job, IPP_JOB_PENDING, CUPSD_JOB_DEFAULT, "Job hold expired.");
     }
 
    /*
@@ -434,10 +436,20 @@ cupsdCleanJobs(void)
   curtime          = time(NULL);
   JobHistoryUpdate = 0;
 
+  cupsdLogMessage(CUPSD_LOG_DEBUG2, "cupsdCleanJobs: curtime=%d", (int)curtime);
+
   for (job = (cupsd_job_t *)cupsArrayFirst(Jobs);
        job;
        job = (cupsd_job_t *)cupsArrayNext(Jobs))
   {
+    cupsdLogMessage(CUPSD_LOG_DEBUG2, "cupsdCleanJobs: Job %d, state=%d, printer=%p, history_time=%d, file_time=%d", job->id, (int)job->state_value, (void *)job->printer, (int)job->history_time, (int)job->file_time);
+
+    if ((job->history_time && job->history_time < JobHistoryUpdate) || !JobHistoryUpdate)
+      JobHistoryUpdate = job->history_time;
+
+    if ((job->file_time && job->file_time < JobHistoryUpdate) || !JobHistoryUpdate)
+      JobHistoryUpdate = job->file_time;
+
     if (job->state_value >= IPP_JOB_CANCELED && !job->printer)
     {
      /*
@@ -450,24 +462,12 @@ cupsdCleanJobs(void)
         cupsdLogJob(job, CUPSD_LOG_DEBUG, "Removing from history.");
 	cupsdDeleteJob(job, CUPSD_JOB_PURGE);
       }
-      else if (job->file_time && job->file_time <= curtime)
+      else if (job->file_time && job->file_time <= curtime && job->num_files > 0)
       {
         cupsdLogJob(job, CUPSD_LOG_DEBUG, "Removing document files.");
-        cupsdLogJob(job, CUPSD_LOG_DEBUG2, "curtime=%ld, job->file_time=%ld", (long)curtime, (long)job->file_time);
         remove_job_files(job);
 
         cupsdMarkDirty(CUPSD_DIRTY_JOBS);
-
-        if (job->history_time < JobHistoryUpdate || !JobHistoryUpdate)
-	  JobHistoryUpdate = job->history_time;
-      }
-      else
-      {
-        if (job->history_time < JobHistoryUpdate || !JobHistoryUpdate)
-	  JobHistoryUpdate = job->history_time;
-
-	if (job->file_time < JobHistoryUpdate || !JobHistoryUpdate)
-	  JobHistoryUpdate = job->file_time;
       }
     }
   }
@@ -1305,9 +1305,7 @@ cupsdContinueJob(cupsd_job_t *job)	/* I - Job */
   cupsdClosePipe(filterfds[slot]);
 
   for (i = 6; i < argc; i ++)
-    if (argv[i])
-      free(argv[i]);
-
+    free(argv[i]);
   free(argv);
 
   if (printer_state_reasons)
@@ -1340,8 +1338,9 @@ cupsdContinueJob(cupsd_job_t *job)	/* I - Job */
   if (argv)
   {
     for (i = 6; i < argc; i ++)
-      if (argv[i])
-	free(argv[i]);
+      free(argv[i]);
+
+    free(argv);
   }
 
   if (printer_state_reasons)
@@ -1726,7 +1725,7 @@ cupsdLoadJob(cupsd_job_t *job)		/* I - Job */
     job->completed_time = attr->values[0].integer;
 
     if (JobHistory < INT_MAX)
-      job->history_time = attr->values[0].integer + JobHistory;
+      job->history_time = job->completed_time + JobHistory;
     else
       job->history_time = INT_MAX;
 
@@ -1737,7 +1736,7 @@ cupsdLoadJob(cupsd_job_t *job)		/* I - Job */
       JobHistoryUpdate = job->history_time;
 
     if (JobFiles < INT_MAX)
-      job->file_time = attr->values[0].integer + JobFiles;
+      job->file_time = job->completed_time + JobFiles;
     else
       job->file_time = INT_MAX;
 
@@ -2184,7 +2183,7 @@ cupsdSaveAllJobs(void)
 		temp[1024];		/* Temporary string */
   cupsd_job_t	*job;			/* Current job */
   time_t	curtime;		/* Current time */
-  struct tm	*curdate;		/* Current date */
+  struct tm	curdate;		/* Current date */
 
 
   snprintf(filename, sizeof(filename), "%s/job.cache", CacheDir);
@@ -2197,9 +2196,9 @@ cupsdSaveAllJobs(void)
   * Write a small header to the file...
   */
 
-  curtime = time(NULL);
-  curdate = localtime(&curtime);
-  strftime(temp, sizeof(temp) - 1, "%Y-%m-%d %H:%M", curdate);
+  time(&curtime);
+  localtime_r(&curtime, &curdate);
+  strftime(temp, sizeof(temp) - 1, "%Y-%m-%d %H:%M", &curdate);
 
   cupsFilePuts(fp, "# Job cache file for " CUPS_SVERSION "\n");
   cupsFilePrintf(fp, "# Written by cupsd on %s\n", temp);
@@ -2312,7 +2311,7 @@ cupsdSetJobHoldUntil(cupsd_job_t *job,	/* I - Job */
 		     int         update)/* I - Update job-hold-until attr? */
 {
   time_t	curtime;		/* Current time */
-  struct tm	*curdate;		/* Current date */
+  struct tm	curdate;		/* Current date */
   int		hour;			/* Hold hour */
   int		minute;			/* Hold minute */
   int		second = 0;		/* Hold second */
@@ -2381,15 +2380,15 @@ cupsdSetJobHoldUntil(cupsd_job_t *job,	/* I - Job */
     * Hold to 6am the next morning unless local time is < 6pm.
     */
 
-    curtime = time(NULL);
-    curdate = localtime(&curtime);
+    time(&curtime);
+    localtime_r(&curtime, &curdate);
 
-    if (curdate->tm_hour < 18)
+    if (curdate.tm_hour < 18)
       job->hold_until = curtime;
     else
       job->hold_until = curtime +
-                        ((29 - curdate->tm_hour) * 60 + 59 -
-			 curdate->tm_min) * 60 + 60 - curdate->tm_sec;
+                        ((29 - curdate.tm_hour) * 60 + 59 -
+			 curdate.tm_min) * 60 + 60 - curdate.tm_sec;
   }
   else if (!strcmp(when, "evening") || !strcmp(when, "night"))
   {
@@ -2397,15 +2396,15 @@ cupsdSetJobHoldUntil(cupsd_job_t *job,	/* I - Job */
     * Hold to 6pm unless local time is > 6pm or < 6am.
     */
 
-    curtime = time(NULL);
-    curdate = localtime(&curtime);
+    time(&curtime);
+    localtime_r(&curtime, &curdate);
 
-    if (curdate->tm_hour < 6 || curdate->tm_hour >= 18)
+    if (curdate.tm_hour < 6 || curdate.tm_hour >= 18)
       job->hold_until = curtime;
     else
       job->hold_until = curtime +
-                        ((17 - curdate->tm_hour) * 60 + 59 -
-			 curdate->tm_min) * 60 + 60 - curdate->tm_sec;
+                        ((17 - curdate.tm_hour) * 60 + 59 -
+			 curdate.tm_min) * 60 + 60 - curdate.tm_sec;
   }
   else if (!strcmp(when, "second-shift"))
   {
@@ -2413,15 +2412,15 @@ cupsdSetJobHoldUntil(cupsd_job_t *job,	/* I - Job */
     * Hold to 4pm unless local time is > 4pm.
     */
 
-    curtime = time(NULL);
-    curdate = localtime(&curtime);
+    time(&curtime);
+    localtime_r(&curtime, &curdate);
 
-    if (curdate->tm_hour >= 16)
+    if (curdate.tm_hour >= 16)
       job->hold_until = curtime;
     else
       job->hold_until = curtime +
-                        ((15 - curdate->tm_hour) * 60 + 59 -
-			 curdate->tm_min) * 60 + 60 - curdate->tm_sec;
+                        ((15 - curdate.tm_hour) * 60 + 59 -
+			 curdate.tm_min) * 60 + 60 - curdate.tm_sec;
   }
   else if (!strcmp(when, "third-shift"))
   {
@@ -2429,15 +2428,15 @@ cupsdSetJobHoldUntil(cupsd_job_t *job,	/* I - Job */
     * Hold to 12am unless local time is < 8am.
     */
 
-    curtime = time(NULL);
-    curdate = localtime(&curtime);
+    time(&curtime);
+    localtime_r(&curtime, &curdate);
 
-    if (curdate->tm_hour < 8)
+    if (curdate.tm_hour < 8)
       job->hold_until = curtime;
     else
       job->hold_until = curtime +
-                        ((23 - curdate->tm_hour) * 60 + 59 -
-			 curdate->tm_min) * 60 + 60 - curdate->tm_sec;
+                        ((23 - curdate.tm_hour) * 60 + 59 -
+			 curdate.tm_min) * 60 + 60 - curdate.tm_sec;
   }
   else if (!strcmp(when, "weekend"))
   {
@@ -2445,16 +2444,16 @@ cupsdSetJobHoldUntil(cupsd_job_t *job,	/* I - Job */
     * Hold to weekend unless we are in the weekend.
     */
 
-    curtime = time(NULL);
-    curdate = localtime(&curtime);
+    time(&curtime);
+    localtime_r(&curtime, &curdate);
 
-    if (curdate->tm_wday == 0 || curdate->tm_wday == 6)
+    if (curdate.tm_wday == 0 || curdate.tm_wday == 6)
       job->hold_until = curtime;
     else
       job->hold_until = curtime +
-                        (((5 - curdate->tm_wday) * 24 +
-                          (17 - curdate->tm_hour)) * 60 + 59 -
-			   curdate->tm_min) * 60 + 60 - curdate->tm_sec;
+                        (((5 - curdate.tm_wday) * 24 +
+                          (17 - curdate.tm_hour)) * 60 + 59 -
+			   curdate.tm_min) * 60 + 60 - curdate.tm_sec;
   }
   else if (sscanf(when, "%d:%d:%d", &hour, &minute, &second) >= 2)
   {
@@ -2462,12 +2461,12 @@ cupsdSetJobHoldUntil(cupsd_job_t *job,	/* I - Job */
     * Hold to specified GMT time (HH:MM or HH:MM:SS)...
     */
 
-    curtime = time(NULL);
-    curdate = gmtime(&curtime);
+    time(&curtime);
+    gmtime_r(&curtime, &curdate);
 
     job->hold_until = curtime +
-                      ((hour - curdate->tm_hour) * 60 + minute -
-		       curdate->tm_min) * 60 + second - curdate->tm_sec;
+                      ((hour - curdate.tm_hour) * 60 + minute -
+		       curdate.tm_min) * 60 + second - curdate.tm_sec;
 
    /*
     * Hold until next day as needed...
@@ -2578,7 +2577,7 @@ cupsdSetJobState(
   job->state_value = newstate;
 
   if (job->state)
-    job->state->values[0].integer = newstate;
+    job->state->values[0].integer = (int)newstate;
 
   switch (newstate)
   {
@@ -2626,7 +2625,7 @@ cupsdSetJobState(
     else
       cupsdAddEvent(CUPSD_EVENT_JOB_STATE, job->printer, job, "%s", buffer);
 
-    if (newstate == IPP_JOB_STOPPED || newstate == IPP_JOB_ABORTED)
+    if (newstate == IPP_JOB_STOPPED || newstate == IPP_JOB_ABORTED || newstate == IPP_JOB_HELD)
       cupsdLogJob(job, CUPSD_LOG_ERROR, "%s", buffer);
     else
       cupsdLogJob(job, CUPSD_LOG_INFO, "%s", buffer);
@@ -2783,8 +2782,6 @@ cupsdStopAllJobs(
   cupsd_job_t	*job;			/* Current job */
 
 
-  DEBUG_puts("cupsdStopAllJobs()");
-
   for (job = (cupsd_job_t *)cupsArrayFirst(PrintingJobs);
        job;
        job = (cupsd_job_t *)cupsArrayNext(PrintingJobs))
@@ -2859,8 +2856,10 @@ cupsdUpdateJobs(void)
       * Update history/file expiration times...
       */
 
+      job->completed_time = attr->values[0].integer;
+
       if (JobHistory < INT_MAX)
-	job->history_time = attr->values[0].integer + JobHistory;
+	job->history_time = job->completed_time + JobHistory;
       else
 	job->history_time = INT_MAX;
 
@@ -2874,7 +2873,7 @@ cupsdUpdateJobs(void)
 	JobHistoryUpdate = job->history_time;
 
       if (JobFiles < INT_MAX)
-	job->file_time = attr->values[0].integer + JobFiles;
+	job->file_time = job->completed_time + JobFiles;
       else
 	job->file_time = INT_MAX;
 
@@ -2958,7 +2957,7 @@ dump_job_history(cupsd_job_t *job)	/* I - Job */
 {
   int			i,		/* Looping var */
 			oldsize;	/* Current MaxLogSize */
-  struct tm		*date;		/* Date/time value */
+  struct tm		date;		/* Date/time value */
   cupsd_joblog_t	*message;	/* Current message */
   char			temp[2048],	/* Log message */
 			*ptr,		/* Pointer into log message */
@@ -2986,12 +2985,12 @@ dump_job_history(cupsd_job_t *job)	/* I - Job */
   */
 
   message = (cupsd_joblog_t *)cupsArrayFirst(job->history);
-  date = localtime(&(message->time));
-  strftime(start, sizeof(start), "%X", date);
+  localtime_r(&(message->time), &date);
+  strftime(start, sizeof(start), "%X", &date);
 
   message = (cupsd_joblog_t *)cupsArrayLast(job->history);
-  date = localtime(&(message->time));
-  strftime(end, sizeof(end), "%X", date);
+  localtime_r(&(message->time), &date);
+  strftime(end, sizeof(end), "%X", &date);
 
   snprintf(temp, sizeof(temp),
            "[Job %d] The following messages were recorded from %s to %s",
@@ -3336,8 +3335,14 @@ finalize_job(cupsd_job_t *job,		/* I - Job */
 	           job_state == IPP_JOB_COMPLETED)
 	  {
 	    job_state = IPP_JOB_ABORTED;
-	    message   = "Job aborted due to backend errors; please consult "
-	                "the error_log file for details.";
+
+	    if (ErrorLog)
+	    {
+	      snprintf(buffer, sizeof(buffer), "Job aborted due to backend errors; please consult the %s file for details.", ErrorLog);
+	      message = buffer;
+            }
+            else
+	      message = "Job aborted due to backend errors.";
 
 	    ippSetString(job->attrs, &job->reasons, 0, "aborted-by-system");
 	  }
@@ -3345,8 +3350,14 @@ finalize_job(cupsd_job_t *job,		/* I - Job */
           {
             job_state     = IPP_JOB_PENDING;
 	    printer_state = IPP_PRINTER_STOPPED;
-	    message       = "Printer stopped due to backend errors; please "
-			    "consult the error_log file for details.";
+
+	    if (ErrorLog)
+	    {
+	      snprintf(buffer, sizeof(buffer), "Printer stopped due to backend errors; please consult the %s file for details.", ErrorLog);
+	      message = buffer;
+            }
+            else
+	      message = "Printer stopped due to backend errors.";
 
 	    ippSetString(job->attrs, &job->reasons, 0, "none");
 	  }
@@ -3384,15 +3395,20 @@ finalize_job(cupsd_job_t *job,		/* I - Job */
 
 	      ippSetString(job->attrs, &job->reasons, 0,
 			   "job-hold-until-specified");
-	      message = "Job held indefinitely due to backend errors; please "
-			"consult the error_log file for details.";
+
+	      if (ErrorLog)
+	      {
+		snprintf(buffer, sizeof(buffer), "Job held indefinitely due to backend errors; please consult the %s file for details.", ErrorLog);
+		message = buffer;
+	      }
+	      else
+		message = "Job held indefinitely due to backend errors.";
             }
             else if (!strcmp(reason, "account-info-needed"))
             {
 	      cupsdSetJobHoldUntil(job, "indefinite", 0);
 
-	      message = "Job held indefinitely - account information is "
-	                "required.";
+	      message = "Job held indefinitely - account information is required.";
             }
             else if (!strcmp(reason, "account-closed"))
             {
@@ -3404,8 +3420,7 @@ finalize_job(cupsd_job_t *job,		/* I - Job */
             {
 	      cupsdSetJobHoldUntil(job, "indefinite", 0);
 
-	      message = "Job held indefinitely - account limit has been "
-	                "reached.";
+	      message = "Job held indefinitely - account limit has been reached.";
 	    }
             else
             {
@@ -3423,16 +3438,27 @@ finalize_job(cupsd_job_t *job,		/* I - Job */
 	  * Stop the printer...
 	  */
 
+          if (job_state == IPP_JSTATE_CANCELED || job_state == IPP_JSTATE_ABORTED)
+          {
+            cupsdLogJob(job, CUPSD_LOG_INFO, "Ignored STOP from backend since the job is %s.", job_state == IPP_JSTATE_CANCELED ? "canceled" : "aborted");
+            break;
+	  }
+
 	  printer_state = IPP_PRINTER_STOPPED;
-	  message       = "Printer stopped due to backend errors; please "
-			  "consult the error_log file for details.";
+
+	  if (ErrorLog)
+	  {
+	    snprintf(buffer, sizeof(buffer), "Printer stopped due to backend errors; please consult the %s file for details.", ErrorLog);
+	    message = buffer;
+	  }
+	  else
+	    message = "Printer stopped due to backend errors.";
 
 	  if (job_state == IPP_JOB_COMPLETED)
 	  {
 	    job_state = IPP_JOB_PENDING;
 
-	    ippSetString(job->attrs, &job->reasons, 0,
-	                 "resources-are-not-ready");
+	    ippSetString(job->attrs, &job->reasons, 0, "resources-are-not-ready");
 	  }
           break;
 
@@ -3522,8 +3548,14 @@ finalize_job(cupsd_job_t *job,		/* I - Job */
     if (job_state == IPP_JOB_COMPLETED)
     {
       job_state = IPP_JOB_STOPPED;
-      message   = "Job stopped due to filter errors; please consult the "
-		  "error_log file for details.";
+
+      if (ErrorLog)
+      {
+	snprintf(buffer, sizeof(buffer), "Job stopped due to filter errors; please consult the %s file for details.", ErrorLog);
+	message = buffer;
+      }
+      else
+	message = "Job stopped due to filter errors.";
 
       if (WIFSIGNALED(job->status))
 	ippSetString(job->attrs, &job->reasons, 0, "cups-filter-crashed");
@@ -3999,6 +4031,45 @@ get_options(cupsd_job_t *job,		/* I - Job */
 	      break;
 
           case IPP_TAG_STRING :
+              {
+                int length = attr->values[i].unknown.length;
+
+		for (valptr = attr->values[i].unknown.data; length > 0; length --)
+		{
+		  if ((*valptr & 255) < 0x20 || *valptr == 0x7f)
+		    break;
+		}
+
+		if (length > 0)
+		{
+		 /*
+		  * Encode this string as hex characters...
+		  */
+
+                  *optptr++ = '<';
+
+		  for (valptr = attr->values[i].unknown.data, length = attr->values[i].unknown.length; length > 0; length --)
+		  {
+		    snprintf(optptr, optlength - (size_t)(optptr - options) - 1, "%02X", *valptr & 255);
+		    optptr += 2;
+		  }
+
+                  *optptr++ = '>';
+		}
+		else
+		{
+		  for (valptr = attr->values[i].unknown.data, length = attr->values[i].unknown.length; length > 0; length --)
+		  {
+		    if (strchr(" \t\n\\\'\"", *valptr))
+		      *optptr++ = '\\';
+		    *optptr++ = *valptr++;
+		  }
+		}
+	      }
+
+	      *optptr = '\0';
+	      break;
+
 	  case IPP_TAG_TEXT :
 	  case IPP_TAG_NAME :
 	  case IPP_TAG_KEYWORD :
@@ -4144,6 +4215,16 @@ ipp_length(ipp_t *ipp)			/* I - IPP request */
 	  break;
 
       case IPP_TAG_STRING :
+         /*
+	  * Octet strings can contain characters that need quoting.  We need
+	  * at least 2 * len + 2 characters to cover the quotes and any
+	  * backslashes in the string.
+	  */
+
+          for (i = 0; i < attr->num_values; i ++)
+	    bytes += 2 * (size_t)attr->values[i].unknown.length + 2;
+	  break;
+
       case IPP_TAG_TEXT :
       case IPP_TAG_NAME :
       case IPP_TAG_KEYWORD :
@@ -4676,7 +4757,7 @@ set_time(cupsd_job_t *job,		/* I - Job to update */
     job->completed_time = curtime;
 
     if (JobHistory < INT_MAX && attr)
-      job->history_time = attr->values[0].integer + JobHistory;
+      job->history_time = job->completed_time + JobHistory;
     else
       job->history_time = INT_MAX;
 
@@ -4684,7 +4765,7 @@ set_time(cupsd_job_t *job,		/* I - Job to update */
       JobHistoryUpdate = job->history_time;
 
     if (JobFiles < INT_MAX && attr)
-      job->file_time = curtime + JobFiles;
+      job->file_time = job->completed_time + JobFiles;
     else
       job->file_time = INT_MAX;
 
@@ -5131,8 +5212,10 @@ update_job(cupsd_job_t *job)		/* I - Job to check */
 
             if (cancel_after)
 	      job->cancel_time = time(NULL) + ippGetInteger(cancel_after, 0);
-	    else
+	    else if (MaxJobTime > 0)
 	      job->cancel_time = time(NULL) + MaxJobTime;
+	    else
+	      job->cancel_time = 0;
 	  }
         }
       }

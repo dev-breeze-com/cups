@@ -1,10 +1,11 @@
 #
 # Locale file makefile for CUPS.
 #
-# Copyright 2007-2018 by Apple Inc.
-# Copyright 1993-2007 by Easy Software Products.
+# Copyright © 2007-2019 by Apple Inc.
+# Copyright © 1993-2007 by Easy Software Products.
 #
-# Licensed under Apache License v2.0.  See the file "LICENSE" for more information.
+# Licensed under Apache License v2.0.  See the file "LICENSE" for more
+# information.
 #
 
 include ../Makedefs
@@ -66,18 +67,16 @@ install-data: $(INSTALL_LANGUAGES)
 
 install-languages:
 	$(INSTALL_DIR) -m 755 $(LOCALEDIR)
-	for loc in $(LANGUAGES) ; do \
+	for loc in en $(LANGUAGES) ; do \
 		if test -f cups_$$loc.po; then \
 			$(INSTALL_DIR) -m 755 $(LOCALEDIR)/$$loc ; \
 			$(INSTALL_DATA) cups_$$loc.po $(LOCALEDIR)/$$loc/cups_$$loc.po ; \
 		fi ; \
 	done
-	$(INSTALL_DIR) -m 755 $(LOCALEDIR)/en
-	$(INSTALL_DATA) cups.pot $(LOCALEDIR)/en/cups_en.po
 
-install-langbundle: po2strings
-	$(INSTALL_DIR) -m 755 "$(BUILDROOT)$(BUNDLEDIR)/Resources/English.lproj"
-	$(INSTALL_DATA) cups.strings "$(BUILDROOT)$(BUNDLEDIR)/Resources/English.lproj"
+install-langbundle:
+	$(INSTALL_DIR) -m 755 "$(BUILDROOT)$(RESOURCEDIR)"
+	$(INSTALL_DATA) cups.strings "$(BUILDROOT)$(RESOURCEDIR)"
 
 
 #
@@ -108,12 +107,12 @@ install-libs:
 uninstall: $(UNINSTALL_LANGUAGES)
 
 uninstall-languages:
-	-for loc in $(LANGUAGES) ; do \
+	-for loc in en $(LANGUAGES) ; do \
 		$(RM) $(LOCALEDIR)/$$loc/cups_$$loc.po ; \
 	done
 
 uninstall-langbundle:
-	$(RM) "$(BUILDROOT)$(BUNDLEDIR)/Resources/English.lproj/cups.strings"
+	$(RM) "$(BUILDROOT)$(RESOURCEDIR)/cups.strings"
 
 
 #
@@ -127,12 +126,12 @@ pot:	checkpo po2strings
 	mv cups.pot cups.pot.bck
 	touch cups.pot
 	cd ..; xgettext -o locale/cups.pot -cTRANSLATORS -s \
-		--keyword=_ --no-wrap \
+		--keyword=_ --no-wrap --from-code utf-8 \
 		--copyright-holder="Apple Inc." \
 		--package-name="CUPS" --package-version="$(CUPS_VERSION)" \
 		--msgid-bugs-address="https://github.com/apple/cups/issues" \
 		*/*.c */*.cxx
-	(cat cups.header; tail +6 cups.pot; cat cups.footer) > cups.pot.N
+	(cat cups.header; tail +6 cups.pot) > cups.pot.N
 	mv cups.pot.N cups.pot
 	echo Checking cups.pot...
 	./checkpo cups.pot
@@ -144,7 +143,11 @@ pot:	checkpo po2strings
 		msgmerge -o $$loc -s -N --no-location $$loc cups.pot ; \
 	done
 	echo Updating cups.strings...
-	./po2strings cups.pot cups.strings
+	./po2strings cups_en.po cups.strings
+
+cups.strings: cups_en.po po2strings
+	echo Updating cups.strings...
+	./po2strings cups_en.po cups.strings
 
 
 #
@@ -156,9 +159,9 @@ pot:	checkpo po2strings
 
 checkpo:	checkpo.o ../cups/$(LIBCUPSSTATIC)
 	echo Linking $@...
-	$(LD_CC) $(ARCHFLAGS) $(LDFLAGS) -o checkpo checkpo.o \
-		../cups/$(LIBCUPSSTATIC) $(LIBGSSAPI) $(SSLLIBS) $(DNSSDLIBS) \
-		$(COMMONLIBS) $(LIBZ)
+	$(LD_CC) $(ARCHFLAGS) $(ALL_LDFLAGS) -o checkpo checkpo.o \
+		$(LINKCUPSSTATIC)
+	$(CODE_SIGN) -s "$(CODE_SIGN_IDENTITY)" $@
 
 checkall:	checkpo
 	./checkpo *.po *.strings
@@ -173,9 +176,9 @@ checkall:	checkpo
 
 po2strings:	po2strings.o ../cups/$(LIBCUPSSTATIC)
 	echo Linking $@...
-	$(LD_CC) $(ARCHFLAGS) $(LDFLAGS) -o po2strings po2strings.o \
-		../cups/$(LIBCUPSSTATIC) $(LIBGSSAPI) $(SSLLIBS) $(DNSSDLIBS) \
-		$(COMMONLIBS) $(LIBZ)
+	$(LD_CC) $(ARCHFLAGS) $(ALL_LDFLAGS) -o po2strings po2strings.o \
+		$(LINKCUPSSTATIC)
+	$(CODE_SIGN) -s "$(CODE_SIGN_IDENTITY)" $@
 
 
 #
@@ -187,7 +190,8 @@ po2strings:	po2strings.o ../cups/$(LIBCUPSSTATIC)
 
 strings2po:	strings2po.o
 	echo Linking $@...
-	$(LD_CC) $(ARCHFLAGS) $(LDFLAGS) -o strings2po strings2po.o
+	$(LD_CC) $(ARCHFLAGS) $(ALL_LDFLAGS) -o strings2po strings2po.o
+	$(CODE_SIGN) -s "$(CODE_SIGN_IDENTITY)" $@
 
 
 #

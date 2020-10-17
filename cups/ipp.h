@@ -145,11 +145,11 @@ typedef enum ipp_finishings_e		/**** Finishings values ****/
   IPP_FINISHINGS_PUNCH_QUAD_TOP,	/* Punch 4 holes top edge */
   IPP_FINISHINGS_PUNCH_QUAD_RIGHT,	/* Punch 4 holes right side */
   IPP_FINISHINGS_PUNCH_QUAD_BOTTOM,	/* Punch 4 holes bottom edge */
-  IPP_FINISHINGS_PUNCH_MULTIPLE_LEFT,	/* Pucnh multiple holes left side */
-  IPP_FINISHINGS_PUNCH_MULTIPLE_TOP,	/* Pucnh multiple holes top edge */
-  IPP_FINISHINGS_PUNCH_MULTIPLE_RIGHT,	/* Pucnh multiple holes right side */
-  IPP_FINISHINGS_PUNCH_MULTIPLE_BOTTOM,	/* Pucnh multiple holes bottom edge */
-  IPP_FINISHINGS_FOLD_ACCORDIAN = 90,	/* Accordian-fold the paper vertically into four sections */
+  IPP_FINISHINGS_PUNCH_MULTIPLE_LEFT,	/* Punch multiple holes left side */
+  IPP_FINISHINGS_PUNCH_MULTIPLE_TOP,	/* Punch multiple holes top edge */
+  IPP_FINISHINGS_PUNCH_MULTIPLE_RIGHT,	/* Punch multiple holes right side */
+  IPP_FINISHINGS_PUNCH_MULTIPLE_BOTTOM,	/* Punch multiple holes bottom edge */
+  IPP_FINISHINGS_FOLD_ACCORDION = 90,	/* Accordion-fold the paper vertically into four sections */
   IPP_FINISHINGS_FOLD_DOUBLE_GATE,	/* Fold the top and bottom quarters of the paper towards the midline, then fold in half vertically */
   IPP_FINISHINGS_FOLD_GATE,		/* Fold the top and bottom quarters of the paper towards the midline */
   IPP_FINISHINGS_FOLD_HALF,		/* Fold the paper in half vertically */
@@ -184,8 +184,8 @@ typedef enum ipp_finishings_e		/**** Finishings values ****/
   IPP_FINISHINGS_CUPS_PUNCH_QUAD_RIGHT,	/* Punch 4 holes right side @exclude all@ */
   IPP_FINISHINGS_CUPS_PUNCH_QUAD_BOTTOM,/* Punch 4 holes bottom edge @exclude all@ */
 
-  IPP_FINISHINGS_CUPS_FOLD_ACCORDIAN = 0x4000005A,
-					/* Accordian-fold the paper vertically into four sections @exclude all@ */
+  IPP_FINISHINGS_CUPS_FOLD_ACCORDION = 0x4000005A,
+					/* Accordion-fold the paper vertically into four sections @exclude all@ */
   IPP_FINISHINGS_CUPS_FOLD_DOUBLE_GATE,	/* Fold the top and bottom quarters of the paper towards the midline, then fold in half vertically @exclude all@ */
   IPP_FINISHINGS_CUPS_FOLD_GATE,	/* Fold the top and bottom quarters of the paper towards the midline @exclude all@ */
   IPP_FINISHINGS_CUPS_FOLD_HALF,	/* Fold the paper in half vertically @exclude all@ */
@@ -198,8 +198,10 @@ typedef enum ipp_finishings_e		/**** Finishings values ****/
   IPP_FINISHINGS_CUPS_FOLD_Z		/* Fold the paper vertically into three sections, forming a Z @exclude all@ */
 } ipp_finishings_t;
 #  ifndef _CUPS_NO_DEPRECATED
+#    define IPP_FINISHINGS_CUPS_FOLD_ACCORDIAN IPP_FINISHINGS_CUPS_FOLD_ACCORDION
+#    define IPP_FINISHINGS_FOLD_ACCORDIAN IPP_FINISHINGS_FOLD_ACCORDION
 #    define IPP_FINISHINGS_JOB_OFFSET	IPP_FINISHINGS_JOG_OFFSET
-					/* Long-time misspelling... */
+					/* Long-time misspellings... */
 typedef enum ipp_finishings_e ipp_finish_t;
 #  endif /* !_CUPS_NO_DEPRECATED */
 
@@ -746,52 +748,52 @@ typedef int (*ipp_copycb_t)(void *context, ipp_t *dst, ipp_attribute_t *attr);
  */
 
 extern ipp_attribute_t	*ippAddBoolean(ipp_t *ipp, ipp_tag_t group,
-			               const char *name, char value);
+			               const char *name, char value) _CUPS_PUBLIC;
 extern ipp_attribute_t	*ippAddBooleans(ipp_t *ipp, ipp_tag_t group,
 			                const char *name, int num_values,
-					const char *values);
+					const char *values) _CUPS_PUBLIC;
 extern ipp_attribute_t	*ippAddDate(ipp_t *ipp, ipp_tag_t group,
-			            const char *name, const ipp_uchar_t *value);
+			            const char *name, const ipp_uchar_t *value) _CUPS_PUBLIC;
 extern ipp_attribute_t	*ippAddInteger(ipp_t *ipp, ipp_tag_t group,
 			               ipp_tag_t value_tag, const char *name,
-				       int value);
+				       int value) _CUPS_PUBLIC;
 extern ipp_attribute_t	*ippAddIntegers(ipp_t *ipp, ipp_tag_t group,
 			                ipp_tag_t value_tag, const char *name,
-					int num_values, const int *values);
+					int num_values, const int *values) _CUPS_PUBLIC;
 extern ipp_attribute_t	*ippAddRange(ipp_t *ipp, ipp_tag_t group,
-			             const char *name, int lower, int upper);
+			             const char *name, int lower, int upper) _CUPS_PUBLIC;
 extern ipp_attribute_t	*ippAddRanges(ipp_t *ipp, ipp_tag_t group,
 			              const char *name, int num_values,
-				      const int *lower, const int *upper);
+				      const int *lower, const int *upper) _CUPS_PUBLIC;
 extern ipp_attribute_t	*ippAddResolution(ipp_t *ipp, ipp_tag_t group,
 			                  const char *name, ipp_res_t units,
-					  int xres, int yres);
+					  int xres, int yres) _CUPS_PUBLIC;
 extern ipp_attribute_t	*ippAddResolutions(ipp_t *ipp, ipp_tag_t group,
 			                   const char *name, int num_values,
 					   ipp_res_t units, const int *xres,
-					   const int *yres);
-extern ipp_attribute_t	*ippAddSeparator(ipp_t *ipp);
+					   const int *yres) _CUPS_PUBLIC;
+extern ipp_attribute_t	*ippAddSeparator(ipp_t *ipp) _CUPS_PUBLIC;
 extern ipp_attribute_t	*ippAddString(ipp_t *ipp, ipp_tag_t group,
 			              ipp_tag_t value_tag, const char *name,
-				      const char *language, const char *value);
+				      const char *language, const char *value) _CUPS_PUBLIC;
 extern ipp_attribute_t	*ippAddStrings(ipp_t *ipp, ipp_tag_t group,
 			               ipp_tag_t value_tag, const char *name,
 				       int num_values, const char *language,
-				       const char * const *values);
-extern time_t		ippDateToTime(const ipp_uchar_t *date);
-extern void		ippDelete(ipp_t *ipp);
-extern const char	*ippErrorString(ipp_status_t error);
+				       const char * const *values) _CUPS_PUBLIC;
+extern time_t		ippDateToTime(const ipp_uchar_t *date) _CUPS_PUBLIC;
+extern void		ippDelete(ipp_t *ipp) _CUPS_PUBLIC;
+extern const char	*ippErrorString(ipp_status_t error) _CUPS_PUBLIC;
 extern ipp_attribute_t	*ippFindAttribute(ipp_t *ipp, const char *name,
-			                  ipp_tag_t value_tag);
+			                  ipp_tag_t value_tag) _CUPS_PUBLIC;
 extern ipp_attribute_t	*ippFindNextAttribute(ipp_t *ipp, const char *name,
-			                      ipp_tag_t value_tag);
-extern size_t		ippLength(ipp_t *ipp);
-extern ipp_t		*ippNew(void);
-extern ipp_state_t	ippRead(http_t *http, ipp_t *ipp);
-extern const ipp_uchar_t *ippTimeToDate(time_t t);
-extern ipp_state_t	ippWrite(http_t *http, ipp_t *ipp);
-extern int		ippPort(void);
-extern void		ippSetPort(int p);
+			                      ipp_tag_t value_tag) _CUPS_PUBLIC;
+extern size_t		ippLength(ipp_t *ipp) _CUPS_PUBLIC;
+extern ipp_t		*ippNew(void) _CUPS_PUBLIC;
+extern ipp_state_t	ippRead(http_t *http, ipp_t *ipp) _CUPS_PUBLIC;
+extern const ipp_uchar_t *ippTimeToDate(time_t t) _CUPS_PUBLIC;
+extern ipp_state_t	ippWrite(http_t *http, ipp_t *ipp) _CUPS_PUBLIC;
+extern int		ippPort(void) _CUPS_PUBLIC;
+extern void		ippSetPort(int p) _CUPS_PUBLIC;
 
 /**** New in CUPS 1.1.19 ****/
 extern ipp_attribute_t	*ippAddCollection(ipp_t *ipp, ipp_tag_t group,

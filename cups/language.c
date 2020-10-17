@@ -12,14 +12,15 @@
  */
 
 #include "cups-private.h"
+#include "debug-internal.h"
 #ifdef HAVE_LANGINFO_H
 #  include <langinfo.h>
 #endif /* HAVE_LANGINFO_H */
-#ifdef WIN32
+#ifdef _WIN32
 #  include <io.h>
 #else
 #  include <unistd.h>
-#endif /* WIN32 */
+#endif /* _WIN32 */
 #ifdef HAVE_COREFOUNDATION_H
 #  include <CoreFoundation/CoreFoundation.h>
 #endif /* HAVE_COREFOUNDATION_H */
@@ -1016,7 +1017,7 @@ _cupsMessageLoad(const char *filename,	/* I - Message catalog to load */
 
 	if (m)
 	{
-	  if (m->str && m->str[0])
+	  if (m->str && (m->str[0] || (flags & _CUPS_MESSAGE_EMPTY)))
 	  {
 	    cupsArrayAdd(a, m);
 	  }
@@ -1113,7 +1114,7 @@ _cupsMessageLoad(const char *filename,	/* I - Message catalog to load */
 
     if (m)
     {
-      if (m->str && m->str[0])
+      if (m->str && (m->str[0] || (flags & _CUPS_MESSAGE_EMPTY)))
       {
 	cupsArrayAdd(a, m);
       }

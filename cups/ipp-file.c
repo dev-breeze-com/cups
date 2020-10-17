@@ -1,7 +1,7 @@
 /*
  * IPP data file parsing functions.
  *
- * Copyright © 2007-2018 by Apple Inc.
+ * Copyright © 2007-2019 by Apple Inc.
  * Copyright © 1997-2007 by Easy Software Products.
  *
  * Licensed under Apache License v2.0.  See the file "LICENSE" for more
@@ -14,7 +14,7 @@
 
 #include "ipp-private.h"
 #include "string-private.h"
-#include "debug-private.h"
+#include "debug-internal.h"
 
 
 /*
@@ -23,7 +23,7 @@
 
 static ipp_t	*parse_collection(_ipp_file_t *f, _ipp_vars_t *v, void *user_data);
 static int	parse_value(_ipp_file_t *f, _ipp_vars_t *v, void *user_data, ipp_t *ipp, ipp_attribute_t **attr, int element);
-static void	report_error(_ipp_file_t *f, _ipp_vars_t *v, void *user_data, const char *message, ...) __attribute((__format__ (__printf__, 4, 5)));
+static void	report_error(_ipp_file_t *f, _ipp_vars_t *v, void *user_data, const char *message, ...) _CUPS_FORMAT(4, 5);
 
 
 /*
@@ -217,6 +217,8 @@ _ippFileReadToken(_ipp_file_t *f,	/* I - File to read from */
   * Skip whitespace and comments...
   */
 
+  DEBUG_printf(("1_ippFileReadToken: linenum=%d, pos=%ld", f->linenum, (long)cupsFileTell(f->fp)));
+
   while ((ch = cupsFileGetChar(f->fp)) != EOF)
   {
     if (_cups_isspace(ch))
@@ -226,13 +228,18 @@ _ippFileReadToken(_ipp_file_t *f,	/* I - File to read from */
       */
 
       if (ch == '\n')
+      {
         f->linenum ++;
+        DEBUG_printf(("1_ippFileReadToken: LF in leading whitespace, linenum=%d, pos=%ld", f->linenum, (long)cupsFileTell(f->fp)));
+      }
     }
     else if (ch == '#')
     {
      /*
       * Comment...
       */
+
+      DEBUG_puts("1_ippFileReadToken: Skipping comment in leading whitespace...");
 
       while ((ch = cupsFileGetChar(f->fp)) != EOF)
       {
@@ -241,7 +248,10 @@ _ippFileReadToken(_ipp_file_t *f,	/* I - File to read from */
       }
 
       if (ch == '\n')
+      {
         f->linenum ++;
+        DEBUG_printf(("1_ippFileReadToken: LF at end of comment, linenum=%d, pos=%ld", f->linenum, (long)cupsFileTell(f->fp)));
+      }
       else
         break;
     }
@@ -262,7 +272,10 @@ _ippFileReadToken(_ipp_file_t *f,	/* I - File to read from */
   while (ch != EOF)
   {
     if (ch == '\n')
+    {
       f->linenum ++;
+      DEBUG_printf(("1_ippFileReadToken: LF in token, linenum=%d, pos=%ld", f->linenum, (long)cupsFileTell(f->fp)));
+    }
 
     if (ch == quote)
     {
@@ -271,7 +284,7 @@ _ippFileReadToken(_ipp_file_t *f,	/* I - File to read from */
       */
 
       *tokptr = '\0';
-      DEBUG_printf(("1_ippFileReadToken: Returning \"%s\".", token));
+      DEBUG_printf(("1_ippFileReadToken: Returning \"%s\" at closing quote.", token));
       return (1);
     }
     else if (!quote && _cups_isspace(ch))
@@ -281,7 +294,7 @@ _ippFileReadToken(_ipp_file_t *f,	/* I - File to read from */
       */
 
       *tokptr = '\0';
-      DEBUG_printf(("1_ippFileReadToken: Returning \"%s\".", token));
+      DEBUG_printf(("1_ippFileReadToken: Returning \"%s\" before whitespace.", token));
       return (1);
     }
     else if (!quote && (ch == '\'' || ch == '\"'))
@@ -290,7 +303,12 @@ _ippFileReadToken(_ipp_file_t *f,	/* I - File to read from */
       * Start of quoted text or regular expression...
       */
 
-      quote = ch;
+      if (ch == '<')
+        quote = '>';
+      else
+        quote = ch;
+
+      DEBUG_printf(("1_ippFileReadToken: Start of quoted string, quote=%c, pos=%ld", quote, (long)cupsFileTell(f->fp)));
     }
     else if (!quote && ch == '#')
     {
@@ -300,7 +318,7 @@ _ippFileReadToken(_ipp_file_t *f,	/* I - File to read from */
 
       cupsFileSeek(f->fp, cupsFileTell(f->fp) - 1);
       *tokptr = '\0';
-      DEBUG_printf(("1_ippFileReadToken: Returning \"%s\".", token));
+      DEBUG_printf(("1_ippFileReadToken: Returning \"%s\" before comment.", token));
       return (1);
     }
     else if (!quote && (ch == '{' || ch == '}' || ch == ','))
@@ -338,6 +356,8 @@ _ippFileReadToken(_ipp_file_t *f,	/* I - File to read from */
         * Quoted character...
         */
 
+        DEBUG_printf(("1_ippFileReadToken: Quoted character at pos=%ld", (long)cupsFileTell(f->fp)));
+
         if ((ch = cupsFileGetChar(f->fp)) == EOF)
         {
 	  *token = '\0';
@@ -345,7 +365,24 @@ _ippFileReadToken(_ipp_file_t *f,	/* I - File to read from */
 	  return (0);
 	}
 	else if (ch == '\n')
+	{
 	  f->linenum ++;
+	  DEBUG_printf(("1_ippFileReadToken: quoted LF, linenum=%d, pos=%ld", f->linenum, (long)cupsFileTell(f->fp)));
+	}
+	else if (ch == 'a')
+	  ch = '\a';
+	else if (ch == 'b')
+	  ch = '\b';
+	else if (ch == 'f')
+	  ch = '\f';
+	else if (ch == 'n')
+	  ch = '\n';
+	else if (ch == 'r')
+	  ch = '\r';
+	else if (ch == 't')
+	  ch = '\t';
+	else if (ch == 'v')
+	  ch = '\v';
       }
 
       if (tokptr < tokend)
@@ -376,7 +413,7 @@ _ippFileReadToken(_ipp_file_t *f,	/* I - File to read from */
   }
 
   *tokptr = '\0';
-  DEBUG_printf(("1_ippFileReadToken: Returning \"%s\".", token));
+  DEBUG_printf(("1_ippFileReadToken: Returning \"%s\" at EOF.", token));
 
   return (tokptr > token);
 }
@@ -425,14 +462,14 @@ parse_collection(
 
       if (!_ippFileReadToken(f, syntax, sizeof(syntax)))
       {
-        report_error(f, v, user_data, "Missing ATTR syntax on line %d of \"%s\".", f->linenum, f->filename);
+        report_error(f, v, user_data, "Missing MEMBER syntax on line %d of \"%s\".", f->linenum, f->filename);
 	ippDelete(col);
 	col = NULL;
 	break;
       }
       else if ((value_tag = ippTagValue(syntax)) < IPP_TAG_UNSUPPORTED_VALUE)
       {
-        report_error(f, v, user_data, "Bad ATTR syntax \"%s\" on line %d of \"%s\".", syntax, f->linenum, f->filename);
+        report_error(f, v, user_data, "Bad MEMBER syntax \"%s\" on line %d of \"%s\".", syntax, f->linenum, f->filename);
 	ippDelete(col);
 	col = NULL;
 	break;
@@ -440,7 +477,7 @@ parse_collection(
 
       if (!_ippFileReadToken(f, name, sizeof(name)) || !name[0])
       {
-        report_error(f, v, user_data, "Missing ATTR name on line %d of \"%s\".", f->linenum, f->filename);
+        report_error(f, v, user_data, "Missing MEMBER name on line %d of \"%s\".", f->linenum, f->filename);
 	ippDelete(col);
 	col = NULL;
 	break;
@@ -515,8 +552,11 @@ parse_value(_ipp_file_t      *f,	/* I  - IPP data file */
             ipp_attribute_t  **attr,	/* IO - IPP attribute */
             int              element)	/* I  - Element number */
 {
-  char	value[1024],			/* Value string */
-	temp[1024];			/* Temporary string */
+  char		value[2049],		/* Value string */
+		*valueptr,		/* Pointer into value string */
+		temp[2049],		/* Temporary string */
+		*tempptr;		/* Pointer into temporary string */
+  size_t	valuelen;		/* Length of value */
 
 
   if (!_ippFileReadToken(f, temp, sizeof(temp)))
@@ -549,8 +589,80 @@ parse_value(_ipp_file_t      *f,	/* I  - IPP data file */
 		utc_offset = 0;		/* Timezone offset from UTC */
           ipp_uchar_t date[11];		/* dateTime value */
 
-          if (sscanf(value, "%d-%d-%dT%d:%d:%d%d", &year, &month, &day, &hour, &minute, &second, &utc_offset) < 6)
+          if (*value == 'P')
           {
+           /*
+            * Time period...
+            */
+
+            time_t	curtime;	/* Current time in seconds */
+            int		period = 0,	/* Current period value */
+			saw_T = 0;	/* Saw time separator */
+
+            curtime = time(NULL);
+
+            for (valueptr = value + 1; *valueptr; valueptr ++)
+            {
+              if (isdigit(*valueptr & 255))
+              {
+                period = (int)strtol(valueptr, &valueptr, 10);
+
+                if (!valueptr || period < 0)
+                {
+		  report_error(f, v, user_data, "Bad dateTime value \"%s\" on line %d of \"%s\".", value, f->linenum, f->filename);
+		  return (0);
+		}
+              }
+
+              if (*valueptr == 'Y')
+              {
+                curtime += 365 * 86400 * period;
+                period  = 0;
+              }
+              else if (*valueptr == 'M')
+              {
+                if (saw_T)
+                  curtime += 60 * period;
+                else
+                  curtime += 30 * 86400 * period;
+
+                period = 0;
+              }
+              else if (*valueptr == 'D')
+              {
+                curtime += 86400 * period;
+                period  = 0;
+              }
+              else if (*valueptr == 'H')
+              {
+                curtime += 3600 * period;
+                period  = 0;
+              }
+              else if (*valueptr == 'S')
+              {
+                curtime += period;
+                period = 0;
+              }
+              else if (*valueptr == 'T')
+              {
+                saw_T  = 1;
+                period = 0;
+              }
+              else
+	      {
+		report_error(f, v, user_data, "Bad dateTime value \"%s\" on line %d of \"%s\".", value, f->linenum, f->filename);
+		return (0);
+	      }
+	    }
+
+	    return (ippSetDate(ipp, attr, element, ippTimeToDate(curtime)));
+          }
+          else if (sscanf(value, "%d-%d-%dT%d:%d:%d%d", &year, &month, &day, &hour, &minute, &second, &utc_offset) < 6)
+          {
+           /*
+            * Date/time value did not parse...
+            */
+
 	    report_error(f, v, user_data, "Bad dateTime value \"%s\" on line %d of \"%s\".", value, f->linenum, f->filename);
 	    return (0);
           }
@@ -624,7 +736,44 @@ parse_value(_ipp_file_t      *f,	/* I  - IPP data file */
 	break;
 
     case IPP_TAG_STRING :
-        return (ippSetOctetString(ipp, attr, element, value, (int)strlen(value)));
+        valuelen = strlen(value);
+
+        if (value[0] == '<' && value[strlen(value) - 1] == '>')
+        {
+          if (valuelen & 1)
+          {
+	    report_error(f, v, user_data, "Bad octetString value on line %d of \"%s\".", f->linenum, f->filename);
+	    return (0);
+          }
+
+          valueptr = value + 1;
+          tempptr  = temp;
+
+          while (*valueptr && *valueptr != '>')
+          {
+	    if (!isxdigit(valueptr[0] & 255) || !isxdigit(valueptr[1] & 255))
+	    {
+	      report_error(f, v, user_data, "Bad octetString value on line %d of \"%s\".", f->linenum, f->filename);
+	      return (0);
+	    }
+
+            if (valueptr[0] >= '0' && valueptr[0] <= '9')
+              *tempptr = (char)((valueptr[0] - '0') << 4);
+	    else
+              *tempptr = (char)((tolower(valueptr[0]) - 'a' + 10) << 4);
+
+            if (valueptr[1] >= '0' && valueptr[1] <= '9')
+              *tempptr |= (valueptr[1] - '0');
+	    else
+              *tempptr |= (tolower(valueptr[1]) - 'a' + 10);
+
+            tempptr ++;
+          }
+
+          return (ippSetOctetString(ipp, attr, element, temp, (int)(tempptr - temp)));
+        }
+        else
+          return (ippSetOctetString(ipp, attr, element, value, (int)valuelen));
         break;
 
     case IPP_TAG_TEXTLANG :
@@ -647,7 +796,7 @@ parse_value(_ipp_file_t      *f,	/* I  - IPP data file */
 
           if (strcmp(value, "{"))
           {
-	    report_error(f, v, user_data, "Bad ATTR collection value on line %d of \"%s\".", f->linenum, f->filename);
+	    report_error(f, v, user_data, "Bad collection value on line %d of \"%s\".", f->linenum, f->filename);
 	    return (0);
           }
 
@@ -662,7 +811,7 @@ parse_value(_ipp_file_t      *f,	/* I  - IPP data file */
 	break;
 
     default :
-        report_error(f, v, user_data, "Unsupported ATTR value on line %d of \"%s\".", f->linenum, f->filename);
+        report_error(f, v, user_data, "Unsupported value on line %d of \"%s\".", f->linenum, f->filename);
         return (0);
   }
 

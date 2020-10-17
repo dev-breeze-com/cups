@@ -1,8 +1,8 @@
 /*
  * Main loop for the CUPS scheduler.
  *
- * Copyright 2007-2017 by Apple Inc.
- * Copyright 1997-2007 by Easy Software Products, all rights reserved.
+ * Copyright © 2007-2019 by Apple Inc.
+ * Copyright © 1997-2007 by Easy Software Products, all rights reserved.
  *
  * Licensed under Apache License v2.0.  See the file "LICENSE" for more
  * information.
@@ -15,6 +15,10 @@
 #define _MAIN_C_
 #include "cupsd.h"
 #include <sys/resource.h>
+#ifdef __APPLE__
+#  include <xpc/xpc.h>
+#  include <pthread/qos.h>
+#endif /* __APPLE__ */
 #ifdef HAVE_ASL_H
 #  include <asl.h>
 #elif defined(HAVE_SYSTEMD_SD_JOURNAL_H)
@@ -125,7 +129,7 @@ main(int  argc,				/* I - Number of command-line args */
   time_t		netif_time = 0;	/* Time since last network update */
 #endif /* __APPLE__ */
 #if defined(HAVE_ONDEMAND)
-  int			service_idle_exit;
+  int			service_idle_exit = 0;
 					/* Idle exit on select timeout? */
 #endif /* HAVE_ONDEMAND */
 
@@ -148,19 +152,14 @@ main(int  argc,				/* I - Number of command-line args */
 
   fg = 0;
 
-#ifdef HAVE_LAUNCHD
-  if (getenv("CUPSD_LAUNCHD"))
-  {
-    OnDemand   = 1;
-    fg         = 1;
-    close_all  = 0;
-    disconnect = 0;
-  }
-#endif /* HAVE_LAUNCHD */
-
   for (i = 1; i < argc; i ++)
-    if (argv[i][0] == '-')
+  {
+    if (!strcmp(argv[i], "--help"))
+      usage(0);
+    else if (argv[i][0] == '-')
+    {
       for (opt = argv[i] + 1; *opt != '\0'; opt ++)
+      {
         switch (*opt)
 	{
 	  case 'C' : /* Run as child with config file */
@@ -315,12 +314,15 @@ main(int  argc,				/* I - Number of command-line args */
 	      usage(1);
 	      break;
 	}
+      }
+    }
     else
     {
       _cupsLangPrintf(stderr, _("cupsd: Unknown argument \"%s\" - aborting."),
                       argv[i]);
       usage(1);
     }
+  }
 
   if (!ConfigurationFile)
     cupsdSetString(&ConfigurationFile, CUPS_SERVERROOT "/cupsd.conf");
@@ -343,6 +345,7 @@ main(int  argc,				/* I - Number of command-line args */
     strlcpy(filename, ConfigurationFile, len);
     if ((slash = strrchr(filename, '/')) == NULL)
     {
+      free(filename);
       _cupsLangPrintf(stderr,
 		      _("cupsd: Unable to get path to "
 			"cups-files.conf file."));
@@ -753,7 +756,12 @@ main(int  argc,				/* I - Number of command-line args */
 
 #ifdef HAVE_ONDEMAND
 	if (OnDemand)
+	{
+#  ifndef HAVE_SYSTEMD /* Issue #5640: systemd doesn't actually support launch-on-demand services, need to fake it */
+	  stop_scheduler = 1;
+#  endif /* HAVE_SYSTEMD */
 	  break;
+	}
 #endif /* HAVE_ONDEMAND */
 
         DoingShutdown = 1;
@@ -961,8 +969,7 @@ main(int  argc,				/* I - Number of command-line args */
 
     if (current_time > expire_time)
     {
-      if (cupsArrayCount(Subscriptions) > 0)
-        cupsdExpireSubscriptions(NULL, NULL);
+      cupsdExpireSubscriptions(NULL, NULL);
 
       cupsdUnloadCompletedJobs();
 
@@ -998,6 +1005,23 @@ main(int  argc,				/* I - Number of command-line args */
 #endif /* !HAVE_AUTHORIZATION_H */
 
    /*
+    * Clean job history...
+    */
+
+    if (JobHistoryUpdate && current_time >= JobHistoryUpdate)
+      cupsdCleanJobs();
+
+   /*
+    * Update any pending multi-file documents...
+    */
+
+    if ((current_time - senddoc_time) >= 10)
+    {
+      cupsdCheckJobs();
+      senddoc_time = current_time;
+    }
+
+   /*
     * Check for new data on the client sockets...
     */
 
@@ -1028,23 +1052,6 @@ main(int  argc,				/* I - Number of command-line args */
         continue;
       }
     }
-
-   /*
-    * Update any pending multi-file documents...
-    */
-
-    if ((current_time - senddoc_time) >= 10)
-    {
-      cupsdCheckJobs();
-      senddoc_time = current_time;
-    }
-
-   /*
-    * Clean job history...
-    */
-
-    if (JobHistoryUpdate && current_time >= JobHistoryUpdate)
-      cupsdCleanJobs();
 
    /*
     * Log statistics at most once a minute when in debug mode...
@@ -1478,9 +1485,16 @@ process_children(void)
               (!job->filters[i] && WIFEXITED(old_status)))
           {				/* Backend and filter didn't crash */
 	    if (job->filters[i])
+	    {
 	      job->status = status;	/* Filter failed */
+	    }
 	    else
+	    {
 	      job->status = -status;	/* Backend failed */
+
+	      if (job->current_file < job->num_files)
+	        cupsdSetJobState(job, IPP_JOB_ABORTED, CUPSD_JOB_FORCE, "Canceling multi-file job due to backend failure.");
+	    }
           }
 
 	  if (job->state_value == IPP_JOB_PROCESSING &&
@@ -1620,7 +1634,6 @@ select_timeout(int fds)			/* I - Number of descriptors returned */
   time_t		now;		/* Current time */
   cupsd_client_t	*con;		/* Client information */
   cupsd_job_t		*job;		/* Job information */
-  cupsd_printer_t       *printer;       /* Printer information */
   const char		*why;		/* Debugging aid */
 
 
@@ -1709,12 +1722,6 @@ select_timeout(int fds)			/* I - Number of descriptors returned */
   * Check for any job activity...
   */
 
-  if (JobHistoryUpdate && timeout > JobHistoryUpdate)
-  {
-    timeout = JobHistoryUpdate;
-    why     = "update job history";
-  }
-
   for (job = (cupsd_job_t *)cupsArrayFirst(ActiveJobs);
        job;
        job = (cupsd_job_t *)cupsArrayNext(ActiveJobs))
@@ -1743,22 +1750,6 @@ select_timeout(int fds)			/* I - Number of descriptors returned */
       why     = "start pending jobs";
       break;
     }
-  }
-
- /*
-  * Check for temporary printers that need to be deleted...
-  */
-
-  for (printer = (cupsd_printer_t *)cupsArrayFirst(Printers); printer; printer = (cupsd_printer_t *)cupsArrayNext(Printers))
-  {
-    if (printer->temporary && !printer->job && (!local_timeout || local_timeout > (printer->state_time + 60)))
-      local_timeout = printer->state_time + 60;
-  }
-
-  if (timeout > local_timeout && local_timeout)
-  {
-    timeout = local_timeout;
-    why     = "delete stale local printers";
   }
 
  /*
@@ -1933,6 +1924,14 @@ service_checkin(void)
               count;                        /* Number of listeners */
     int       *ld_sockets;                  /* Listener sockets */
 
+#  ifdef __APPLE__
+   /*
+    * Force "user initiated" priority for the main thread...
+    */
+
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+#  endif /* __APPLE__ */
+
    /*
     * Check-in with launchd...
     */
@@ -1954,6 +1953,10 @@ service_checkin(void)
       service_add_listener(ld_sockets[i], (int)i);
 
     free(ld_sockets);
+
+#  ifdef __APPLE__
+    xpc_transaction_begin();
+#  endif /* __APPLE__ */
   }
 
 #elif defined(HAVE_SYSTEMD)
@@ -2050,13 +2053,31 @@ service_checkout(int shutdown)          /* I - Shutting down? */
 #ifdef HAVE_ONDEMAND
   if (OnDemand)
   {
+    int shared_printers = 0;		/* Do we have shared printers? */
+
     strlcpy(pidfile, CUPS_KEEPALIVE, sizeof(pidfile));
+
+   /*
+    * If printer sharing is on see if there are any actual shared printers...
+    */
+
+    if (Browsing && BrowseLocalProtocols)
+    {
+      cupsd_printer_t *p = NULL;	/* Current printer */
+
+      for (p = (cupsd_printer_t *)cupsArrayFirst(Printers); p; p = (cupsd_printer_t *)cupsArrayNext(Printers))
+      {
+        if (p->shared)
+          break;
+      }
+
+      shared_printers = (p != NULL);
+    }
 
     if (cupsArrayCount(ActiveJobs) ||	/* Active jobs */
         WebInterface ||			/* Web interface enabled */
         NeedReload ||			/* Doing a reload */
-        (Browsing && BrowseLocalProtocols && cupsArrayCount(Printers)))
-                                        /* Printers being shared */
+        shared_printers)                /* Printers being shared */
     {
      /*
       * Create or remove the "keep-alive" file based on whether there are active
@@ -2092,6 +2113,11 @@ service_checkout(int shutdown)          /* I - Shutting down? */
     else
       cupsdLogMessage(CUPSD_LOG_ERROR, "Unable to create KeepAlive/PID file \"%s\": %s", pidfile, strerror(errno));
   }
+
+#  ifdef __APPLE__
+  if (OnDemand && shutdown)
+    xpc_transaction_end();
+#  endif /* __APPLE__ */
 }
 
 
@@ -2107,15 +2133,15 @@ usage(int status)			/* O - Exit status */
 
   _cupsLangPuts(fp, _("Usage: cupsd [options]"));
   _cupsLangPuts(fp, _("Options:"));
-  _cupsLangPuts(fp, _("  -c cupsd.conf           Set cupsd.conf file to use."));
-  _cupsLangPuts(fp, _("  -f                      Run in the foreground."));
-  _cupsLangPuts(fp, _("  -F                      Run in the foreground but detach from console."));
-  _cupsLangPuts(fp, _("  -h                      Show this usage message."));
+  _cupsLangPuts(fp, _("-c cupsd.conf           Set cupsd.conf file to use."));
+  _cupsLangPuts(fp, _("-f                      Run in the foreground."));
+  _cupsLangPuts(fp, _("-F                      Run in the foreground but detach from console."));
+  _cupsLangPuts(fp, _("-h                      Show this usage message."));
 #ifdef HAVE_ONDEMAND
-  _cupsLangPuts(fp, _("  -l                      Run cupsd on demand."));
+  _cupsLangPuts(fp, _("-l                      Run cupsd on demand."));
 #endif /* HAVE_ONDEMAND */
-  _cupsLangPuts(fp, _("  -s cups-files.conf      Set cups-files.conf file to use."));
-  _cupsLangPuts(fp, _("  -t                      Test the configuration file."));
+  _cupsLangPuts(fp, _("-s cups-files.conf      Set cups-files.conf file to use."));
+  _cupsLangPuts(fp, _("-t                      Test the configuration file."));
 
   exit(status);
 }

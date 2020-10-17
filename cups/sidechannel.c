@@ -1,10 +1,11 @@
 /*
  * Side-channel API code for CUPS.
  *
- * Copyright 2007-2014 by Apple Inc.
- * Copyright 2006 by Easy Software Products.
+ * Copyright © 2007-2019 by Apple Inc.
+ * Copyright © 2006 by Easy Software Products.
  *
- * Licensed under Apache License v2.0.  See the file "LICENSE" for more information.
+ * Licensed under Apache License v2.0.  See the file "LICENSE" for more
+ * information.
  */
 
 /*
@@ -13,15 +14,14 @@
 
 #include "sidechannel.h"
 #include "cups-private.h"
-#ifdef WIN32
+#include "debug-internal.h"
+#ifdef _WIN32
 #  include <io.h>
 #else
 #  include <unistd.h>
-#endif /* WIN32 */
-#ifndef WIN32
 #  include <sys/select.h>
 #  include <sys/time.h>
-#endif /* !WIN32 */
+#endif /* _WIN32 */
 #ifdef HAVE_POLL
 #  include <poll.h>
 #endif /* HAVE_POLL */
@@ -590,8 +590,8 @@ cupsSideChannelWrite(
   if ((buffer = _cupsBufferGet((size_t)datalen + 4)) == NULL)
     return (-1);
 
-  buffer[0] = command;
-  buffer[1] = status;
+  buffer[0] = (char)command;
+  buffer[1] = (char)status;
   buffer[2] = (char)(datalen >> 8);
   buffer[3] = (char)(datalen & 255);
 

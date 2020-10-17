@@ -1,7 +1,7 @@
 /*
  * SNMP functions for CUPS.
  *
- * Copyright © 2007-2014 by Apple Inc.
+ * Copyright © 2007-2019 by Apple Inc.
  * Copyright © 2006-2007 by Easy Software Products, all rights reserved.
  *
  * Licensed under Apache License v2.0.  See the file "LICENSE" for more
@@ -14,6 +14,7 @@
 
 #include "cups-private.h"
 #include "snmp-private.h"
+#include "debug-internal.h"
 #ifdef HAVE_POLL
 #  include <poll.h>
 #endif /* HAVE_POLL */
@@ -128,9 +129,13 @@ _cupsSNMPDefaultCommunity(void)
     {
       linenum = 0;
       while (cupsFileGetConf(fp, line, sizeof(line), &value, &linenum))
-	if (!_cups_strcasecmp(line, "Community") && value)
+	if (!_cups_strcasecmp(line, "Community"))
 	{
-	  strlcpy(cg->snmp_community, value, sizeof(cg->snmp_community));
+	  if (value)
+	    strlcpy(cg->snmp_community, value, sizeof(cg->snmp_community));
+	  else
+	    cg->snmp_community[0] = '\0';
+
 	  break;
 	}
 
@@ -390,11 +395,11 @@ _cupsSNMPRead(int         fd,		/* I - SNMP socket file descriptor */
 
       ready = select(fd + 1, &input_set, NULL, NULL, &stimeout);
     }
-#  ifdef WIN32
+#  ifdef _WIN32
     while (ready < 0 && WSAGetLastError() == WSAEINTR);
 #  else
     while (ready < 0 && (errno == EINTR || errno == EAGAIN));
-#  endif /* WIN32 */
+#  endif /* _WIN32 */
 #endif /* HAVE_POLL */
 
    /*
@@ -1162,7 +1167,7 @@ asn1_encode_snmp(unsigned char *buffer,	/* I - Buffer */
   memcpy(bufptr, packet->community, commlen);
   bufptr += commlen;
 
-  *bufptr++ = packet->request_type;	/* Get-Request-PDU/Get-Next-Request-PDU */
+  *bufptr++ = (unsigned char)packet->request_type;	/* Get-Request-PDU/Get-Next-Request-PDU */
   asn1_set_length(&bufptr, reqlen);
 
   asn1_set_integer(&bufptr, (int)packet->request_id);
@@ -1228,16 +1233,19 @@ asn1_get_integer(
   int	value;				/* Integer value */
 
 
+  if (*buffer >= bufend)
+    return (0);
+
   if (length > sizeof(int))
   {
     (*buffer) += length;
     return (0);
   }
 
-  for (value = (**buffer & 0x80) ? -1 : 0;
+  for (value = (**buffer & 0x80) ? ~0 : 0;
        length > 0 && *buffer < bufend;
        length --, (*buffer) ++)
-    value = (value << 8) | **buffer;
+    value = ((value & 0xffffff) << 8) | **buffer;
 
   return (value);
 }
@@ -1253,6 +1261,9 @@ asn1_get_length(unsigned char **buffer,	/* IO - Pointer in buffer */
 {
   unsigned	length;			/* Length */
 
+
+  if (*buffer >= bufend)
+    return (0);
 
   length = **buffer;
   (*buffer) ++;
@@ -1295,6 +1306,9 @@ asn1_get_oid(
 		*oidend;		/* End of OID buffer */
   int		number;			/* OID number */
 
+
+  if (*buffer >= bufend)
+    return (0);
 
   valend = *buffer + length;
   oidptr = oid;
@@ -1344,9 +1358,12 @@ asn1_get_packed(
   int	value;				/* Value */
 
 
+  if (*buffer >= bufend)
+    return (0);
+
   value = 0;
 
-  while ((**buffer & 128) && *buffer < bufend)
+  while (*buffer < bufend && (**buffer & 128))
   {
     value = (value << 7) | (**buffer & 127);
     (*buffer) ++;
@@ -1374,6 +1391,9 @@ asn1_get_string(
     char          *string,		/* I  - String buffer */
     size_t        strsize)		/* I  - String buffer size */
 {
+  if (*buffer >= bufend)
+    return (NULL);
+
   if (length > (unsigned)(bufend - *buffer))
     length = (unsigned)(bufend - *buffer);
 
@@ -1415,6 +1435,9 @@ asn1_get_type(unsigned char **buffer,	/* IO - Pointer in buffer */
 {
   int	type;				/* Type */
 
+
+  if (*buffer >= bufend)
+    return (0);
 
   type = **buffer;
   (*buffer) ++;

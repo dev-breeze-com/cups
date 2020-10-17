@@ -1,14 +1,14 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
 <!-- SECTION: Programming -->
   <head>
     <title>CUPS Programming Manual</title>
     <meta name="keywords" content="Programming">
     <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
-    <meta name="creator" content="Mini-XML v2.11">
+    <meta name="creator" content="codedoc v3.1">
     <meta name="author" content="Michael R Sweet">
-    <meta name="copyright" content="Copyright &#xa9; 2007-2018 by Apple Inc. All Rights Reserved.">
-    <meta name="version" content="2.3.0">
+    <meta name="copyright" content="Copyright &#xa9; 2007-2019 by Apple Inc. All Rights Reserved.">
+    <meta name="version" content="2.3.3">
     <style type="text/css"><!--
 body, p, h1, h2, h3, h4 {
   font-family: sans-serif;
@@ -174,7 +174,7 @@ h3.title {
   <body>
     <h1 class="title">CUPS Programming Manual</h1>
     <p>Michael R Sweet</p>
-    <p>Copyright &#xa9; 2007-2018 by Apple Inc. All Rights Reserved.</p>
+    <p>Copyright &#xa9; 2007-2019 by Apple Inc. All Rights Reserved.</p>
     <div class="contents">
       <h2 class="title">Contents</h2>
       <ul class="contents">
@@ -520,7 +520,7 @@ h3.title {
     <p>CUPS provides the &quot;cups&quot; library to talk to the different parts of CUPS and with Internet Printing Protocol (IPP) printers. The &quot;cups&quot; library functions are accessed by including the <code>&lt;cups/cups.h&gt;</code> header.</p>
     <p>CUPS is based on the Internet Printing Protocol (&quot;IPP&quot;), which allows clients (applications) to communicate with a server (the scheduler, printers, etc.) to get a list of destinations, send print jobs, and so forth. You identify which server you want to communicate with using a pointer to the opaque structure <code>http_t</code>. The <code>CUPS_HTTP_DEFAULT</code> constant can be used when you want to talk to the CUPS scheduler.</p>
     <h3><a id="guidelines">Guidelines</a></h3>
-    <p>When writing software that uses the &quot;cups&quot; library:</p>
+    <p>When writing software (other than printer drivers) that uses the &quot;cups&quot; library:</p>
     <ul>
     <li>Do not use undocumented or deprecated APIs,</li>
     <li>Do not rely on pre-configured printers,</li>
@@ -529,8 +529,12 @@ h3.title {
 </ul>
     <p>CUPS is designed to insulate users and developers from the implementation details of printers and file formats. The goal is to allow an application to supply a print file in a standard format with the user intent (&quot;print four copies, two-sided on A4 media, and staple each copy&quot;) and have the printing system manage the printer communication and format conversion needed.</p>
     <p>Similarly, printer and job management applications can use standard query operations to obtain the status information in a common, generic form and use standard management operations to control the state of those printers and jobs.</p>
+    <blockquote>
+    <p><strong>Note:</strong></p>
+    <p>CUPS printer drivers necessarily depend on specific file formats and certain implementation details of the CUPS software. Please consult the Postscript and raster printer driver developer documentation on <a href="https://www.cups.org/documentation.html">CUPS.org</a> for more information.</p>
+</blockquote>
     <h3><a id="terms-used-in-this-document">Terms Used in This Document</a></h3>
-    <p>A <em>Destination</em> is a printer or print queue that accepts print jobs. A <em>Print</em> <em>Job</em> is one or more documents that are processed by a destination using options supplied when creating the job. A <em>Document</em> is a file (JPEG image, PDF file, etc.) suitable for printing. An <em>Option</em> controls some aspect of printing, such as the media used. <em>Media</em> is the sheets or roll that is printed on. An <em>Attribute</em> is an option encoded for an Internet Printing Protocol (IPP) request.</p>
+    <p>A <em>Destination</em> is a printer or print queue that accepts print jobs. A <em>Print</em> <em>Job</em> is a collection of one or more documents that are processed by a destination using options supplied when creating the job. A <em>Document</em> is a file (JPEG image, PDF file, etc.) suitable for printing. An <em>Option</em> controls some aspect of printing, such as the media used. <em>Media</em> is the sheets or roll that is printed on. An <em>Attribute</em> is an option encoded for an Internet Printing Protocol (IPP) request.</p>
     <h3><a id="compiling-programs-that-use-the-cups-api">Compiling Programs That Use the CUPS API</a></h3>
     <p>The CUPS libraries can be used from any C, C++, or Objective C program. The method of compiling against the libraries varies depending on the operating system and installation of CUPS. The following sections show how to compile a simple program (shown below) in two common environments.</p>
     <p>The following simple program lists the available destinations:</p>
@@ -559,7 +563,7 @@ int main(void)
     <p>In the project window, click on the <em>Build</em> <em>Phases</em> group and expand the <em>Link</em> <em>Binary</em> <em>with</em> <em>Libraries</em> section. Click <em>+</em>, type &quot;libcups&quot; to show the library, and then double-click on <code>libcups.tbd</code>.</p>
     <p>Finally, click on the <code>main.c</code> file in the sidebar and copy the example program to the file. Build and run (CMD+R) to see the list of destinations.</p>
     <h4><a id="compiling-with-gcc">Compiling with GCC</a></h4>
-    <p>From the command-line, create a file called <code>sample.c</code> using your favorite editor, copy the example to this file, and save. Then run the following command to compile it with GCC and run it:</p>
+    <p>From the command-line, create a file called <code>simple.c</code> using your favorite editor, copy the example to this file, and save. Then run the following command to compile it with GCC and run it:</p>
     <pre><code>gcc -o simple `cups-config --cflags` simple.c `cups-config --libs`
 ./simple
 </code></pre>
@@ -611,7 +615,8 @@ int main(void)
 </ul>
     <p>The callback function returns 0 to stop enumeration or 1 to continue.</p>
     <blockquote>
-    <p>Note that the callback function will likely be called multiple times for the same destination, so it is up to the caller to suppress any duplicate destinations.</p>
+    <p><strong>Note:</strong></p>
+    <p>The callback function will likely be called multiple times for the same destination, so it is up to the caller to suppress any duplicate destinations.</p>
 </blockquote>
     <p>The following example shows how to use <code>cupsEnumDests</code> to get a filtered array of destinations:</p>
     <pre><code>typedef struct
@@ -1043,7 +1048,8 @@ ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_URI,
              &quot;printer-uri&quot;, NULL, printer_uri);
 </code></pre>
     <blockquote>
-    <p>Note: If we wanted to query the scheduler instead of the device, we would look up the &quot;printer-uri-supported&quot; option instead of the &quot;device-uri&quot; value.</p>
+    <p><strong>Note:</strong></p>
+    <p>If we wanted to query the scheduler instead of the device, we would look up the &quot;printer-uri-supported&quot; option instead of the &quot;device-uri&quot; value.</p>
 </blockquote>
     <p>The <code>ippAddString</code> function adds the &quot;printer-uri&quot; attribute the the IPP request. The <code>IPP_TAG_OPERATION</code> argument specifies that the attribute is part of the operation. The <code>IPP_TAG_URI</code> argument specifies that the value is a Universal Resource Identifier (URI) string. The <code>NULL</code> argument specifies there is no language (English, French, Japanese, etc.) associated with the string, and the <code>printer_uri</code> argument specifies the string value.</p>
     <p>The IPP Get-Printer-Attributes request also supports an IPP attribute called &quot;requested-attributes&quot; that lists the attributes and values you are interested in. For example, the following code requests the printer state attributes:</p>
@@ -1177,7 +1183,7 @@ a copy of that destination's options.<br>
 <br>
 Use the <a href="#cupsSaveDests"><code>cupsSaveDests</code></a> function to save the updated list of
 destinations to the user's lpoptions file.</p>
-<h3 class="function"><span class="info">&#160;CUPS 2.3&#160;</span><a id="cupsAddDestMediaOptions">cupsAddDestMediaOptions</a></h3>
+<h3 class="function"><span class="info">&#160;CUPS 2.3/macOS 10.14&#160;</span><a id="cupsAddDestMediaOptions">cupsAddDestMediaOptions</a></h3>
         <p class="description">Add the option corresponding to the specified media size.</p>
 <p class="code">
 int cupsAddDestMediaOptions(<a href="#http_t">http_t</a> *http, <a href="#cups_dest_t">cups_dest_t</a> *dest, <a href="#cups_dinfo_t">cups_dinfo_t</a> *dinfo, unsigned flags, <a href="#cups_size_t">cups_size_t</a> *size, int num_options, <a href="#cups_option_t">cups_option_t</a> **options);</p>
@@ -1488,7 +1494,7 @@ int cupsDoAuthentication(<a href="#http_t">http_t</a> *http, const char *method,
 status, prior to resubmitting your request.
 
 </p>
-<h3 class="function"><span class="info">&#160;CUPS 2.3&#160;</span><a id="cupsEncodeOption">cupsEncodeOption</a></h3>
+<h3 class="function"><span class="info">&#160;CUPS 2.3/macOS 10.14&#160;</span><a id="cupsEncodeOption">cupsEncodeOption</a></h3>
         <p class="description">Encode a single option into an IPP attribute.</p>
 <p class="code">
 <a href="#ipp_attribute_t">ipp_attribute_t</a> *cupsEncodeOption(<a href="#ipp_t">ipp_t</a> *ipp, ipp_tag_t group_tag, const char *name, const char *value);</p>
@@ -6107,6 +6113,7 @@ constants</p>
         <tr><th>HTTP_FIELD_ACCEPT_LANGUAGE </th>        <td class="description">Accept-Language field</td></tr>
         <tr><th>HTTP_FIELD_ACCEPT_RANGES </th>        <td class="description">Accept-Ranges field</td></tr>
         <tr><th>HTTP_FIELD_ALLOW <span class="info">&#160;CUPS 1.7/macOS 10.9&#160;</span></th>        <td class="description">Allow field </td></tr>
+        <tr><th>HTTP_FIELD_AUTHENTICATION_INFO <span class="info">&#160;CUPS 2.2.9)&#160;</span></th>        <td class="description">Authentication-Info field (</td></tr>
         <tr><th>HTTP_FIELD_AUTHORIZATION </th>        <td class="description">Authorization field</td></tr>
         <tr><th>HTTP_FIELD_CONNECTION </th>        <td class="description">Connection field</td></tr>
         <tr><th>HTTP_FIELD_CONTENT_ENCODING </th>        <td class="description">Content-Encoding field</td></tr>
@@ -6276,7 +6283,7 @@ are server-oriented...</p>
         <tr><th>IPP_FINISHINGS_EDGE_STITCH_RIGHT </th>        <td class="description">Stitch along right side</td></tr>
         <tr><th>IPP_FINISHINGS_EDGE_STITCH_TOP </th>        <td class="description">Stitch along top edge</td></tr>
         <tr><th>IPP_FINISHINGS_FOLD </th>        <td class="description">Fold (any type)</td></tr>
-        <tr><th>IPP_FINISHINGS_FOLD_ACCORDIAN </th>        <td class="description">Accordian-fold the paper vertically into four sections</td></tr>
+        <tr><th>IPP_FINISHINGS_FOLD_ACCORDION </th>        <td class="description">Accordion-fold the paper vertically into four sections</td></tr>
         <tr><th>IPP_FINISHINGS_FOLD_DOUBLE_GATE </th>        <td class="description">Fold the top and bottom quarters of the paper towards the midline, then fold in half vertically</td></tr>
         <tr><th>IPP_FINISHINGS_FOLD_ENGINEERING_Z </th>        <td class="description">Fold the paper vertically into two small sections and one larger, forming an elongated Z</td></tr>
         <tr><th>IPP_FINISHINGS_FOLD_GATE </th>        <td class="description">Fold the top and bottom quarters of the paper towards the midline</td></tr>
@@ -6298,10 +6305,10 @@ are server-oriented...</p>
         <tr><th>IPP_FINISHINGS_PUNCH_DUAL_LEFT </th>        <td class="description">Punch 2 holes left side</td></tr>
         <tr><th>IPP_FINISHINGS_PUNCH_DUAL_RIGHT </th>        <td class="description">Punch 2 holes right side</td></tr>
         <tr><th>IPP_FINISHINGS_PUNCH_DUAL_TOP </th>        <td class="description">Punch 2 holes top edge</td></tr>
-        <tr><th>IPP_FINISHINGS_PUNCH_MULTIPLE_BOTTOM </th>        <td class="description">Pucnh multiple holes bottom edge</td></tr>
-        <tr><th>IPP_FINISHINGS_PUNCH_MULTIPLE_LEFT </th>        <td class="description">Pucnh multiple holes left side</td></tr>
-        <tr><th>IPP_FINISHINGS_PUNCH_MULTIPLE_RIGHT </th>        <td class="description">Pucnh multiple holes right side</td></tr>
-        <tr><th>IPP_FINISHINGS_PUNCH_MULTIPLE_TOP </th>        <td class="description">Pucnh multiple holes top edge</td></tr>
+        <tr><th>IPP_FINISHINGS_PUNCH_MULTIPLE_BOTTOM </th>        <td class="description">Punch multiple holes bottom edge</td></tr>
+        <tr><th>IPP_FINISHINGS_PUNCH_MULTIPLE_LEFT </th>        <td class="description">Punch multiple holes left side</td></tr>
+        <tr><th>IPP_FINISHINGS_PUNCH_MULTIPLE_RIGHT </th>        <td class="description">Punch multiple holes right side</td></tr>
+        <tr><th>IPP_FINISHINGS_PUNCH_MULTIPLE_TOP </th>        <td class="description">Punch multiple holes top edge</td></tr>
         <tr><th>IPP_FINISHINGS_PUNCH_QUAD_BOTTOM </th>        <td class="description">Punch 4 holes bottom edge</td></tr>
         <tr><th>IPP_FINISHINGS_PUNCH_QUAD_LEFT </th>        <td class="description">Punch 4 holes left side</td></tr>
         <tr><th>IPP_FINISHINGS_PUNCH_QUAD_RIGHT </th>        <td class="description">Punch 4 holes right side</td></tr>

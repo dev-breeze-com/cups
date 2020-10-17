@@ -2,7 +2,7 @@
 #
 # Script to wait for jobs to complete.
 #
-# Copyright © 2008-2009 by Apple Inc.
+# Copyright © 2008-2019 by Apple Inc.
 #
 # Licensed under Apache License v2.0.  See the file "LICENSE" for more
 # information.
@@ -34,7 +34,7 @@ echo $ac_n "Waiting for jobs to complete...$ac_c"
 oldjobs=0
 
 while test $timeout -gt 0; do
-	jobs=`../systemv/lpstat 2>/dev/null | wc -l | tr -d ' '`
+	jobs=`$runcups ../systemv/lpstat 2>/dev/null | wc -l | tr -d ' '`
 	if test $jobs = 0; then
 		break
 	fi

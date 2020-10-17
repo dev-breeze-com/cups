@@ -1,10 +1,11 @@
 dnl
 dnl Operating system stuff for CUPS.
 dnl
-dnl Copyright 2007-2017 by Apple Inc.
-dnl Copyright 1997-2006 by Easy Software Products, all rights reserved.
+dnl Copyright © 2007-2019 by Apple Inc.
+dnl Copyright © 1997-2006 by Easy Software Products, all rights reserved.
 dnl
-dnl Licensed under Apache License v2.0.  See the file "LICENSE" for more information.
+dnl Licensed under Apache License v2.0.  See the file "LICENSE" for more
+dnl information.
 dnl
 
 dnl Get the build and host platforms and split the host_os value
@@ -18,10 +19,6 @@ if test "x$host_os_version" = x; then
         host_os_version="0"
 fi
 
-if test "$host_os_name" = darwin -a $host_os_version -lt 120; then
-        AC_MSG_ERROR([Sorry, this version of CUPS requires macOS 10.8 or higher.])
-fi
-
 dnl Determine whether we are cross-compiling...
 if test "$build" = "$host"; then
         # No, build local targets
@@ -31,3 +28,5 @@ else
 	LOCALTARGET=""
 fi
 AC_SUBST(LOCALTARGET)
+
+AC_PATH_PROGS(CODE_SIGN, codesign true)

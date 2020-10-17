@@ -4,7 +4,7 @@
  * THESE APIS ARE DEPRECATED.  THIS HEADER AND THESE FUNCTIONS WILL BE REMOVED
  * IN A FUTURE RELEASE OF CUPS.
  *
- * Copyright © 2007-2018 by Apple Inc.
+ * Copyright © 2007-2019 by Apple Inc.
  * Copyright © 1997-2007 by Easy Software Products, all rights reserved.
  *
  * Licensed under Apache License v2.0.  See the file "LICENSE" for more
@@ -55,6 +55,20 @@ extern "C" {
 /*
  * Types and structures...
  */
+
+typedef int (*cups_interpret_cb_t)(cups_page_header2_t *header, int preferred_bits);
+					/**** cupsRasterInterpretPPD callback function
+					 *
+					 * This function is called by
+					 * @link cupsRasterInterpretPPD@ to
+					 * validate (and update, as needed)
+					 * the page header attributes. The
+					 * "preferred_bits" argument provides
+					 * the value of the
+					 * @code cupsPreferredBitsPerColor@
+					 * key from the PostScript page device
+					 * dictionary and is 0 if undefined.
+					 ****/
 
 typedef enum ppd_ui_e			/**** UI Types @deprecated@ ****/
 {
@@ -109,6 +123,8 @@ typedef enum ppd_status_e		/**** Status Codes @deprecated@ ****/
   PPD_MISSING_OPTION_KEYWORD,		/* Missing option keyword */
   PPD_BAD_VALUE,			/* Bad value string */
   PPD_MISSING_CLOSE_GROUP,		/* Missing CloseGroup */
+  PPD_BAD_CLOSE_UI,			/* Bad CloseUI/JCLCloseUI */
+  PPD_MISSING_CLOSE_UI,			/* Missing CloseUI/JCLCloseUI */
   PPD_MAX_STATUS			/* @private@ */
 } ppd_status_t;
 
@@ -210,6 +226,7 @@ typedef struct ppd_profile_s		/**** sRGB Color Profiles @deprecated@ ****/
 /**** New in CUPS 1.2/macOS 10.5 ****/
 typedef enum ppd_cptype_e		/**** Custom Parameter Type @deprecated@ ****/
 {
+  PPD_CUSTOM_UNKNOWN = -1,		/* Unknown type (error) */
   PPD_CUSTOM_CURVE,			/* Curve value for f(x) = x^value */
   PPD_CUSTOM_INT,			/* Integer number value */
   PPD_CUSTOM_INVCURVE,			/* Curve value for f(x) = x^(1/value) */
@@ -279,8 +296,8 @@ typedef struct ppd_file_s		/**** PPD File @deprecated@ ****/
   int		throughput;		/* Pages per minute */
   ppd_cs_t	colorspace;		/* Default colorspace */
   char		*patches;		/* Patch commands to be sent to printer */
-  int		num_emulations;		/* Number of emulations supported */
-  ppd_emul_t	*emulations;		/* Emulations and the code to invoke them */
+  int		num_emulations;		/* Number of emulations supported (no longer supported) @private@ */
+  ppd_emul_t	*emulations;		/* Emulations and the code to invoke them (no longer supported) @private@ */
   char		*jcl_begin;		/* Start JCL commands */
   char		*jcl_ps;		/* Enter PostScript interpreter */
   char		*jcl_end;		/* End JCL commands */

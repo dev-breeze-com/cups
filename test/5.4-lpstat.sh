@@ -2,7 +2,7 @@
 #
 # Test the lpstat command.
 #
-# Copyright © 2007-2017 by Apple Inc.
+# Copyright © 2007-2019 by Apple Inc.
 # Copyright © 1997-2005 by Easy Software Products, all rights reserved.
 #
 # Licensed under Apache License v2.0.  See the file "LICENSE" for more
@@ -12,7 +12,7 @@
 echo "LPSTAT Basic Test"
 echo ""
 echo "    lpstat -t"
-$VALGRIND ../systemv/lpstat -t 2>&1
+$runcups $VALGRIND ../systemv/lpstat -t 2>&1
 if test $? != 0; then
 	echo "    FAILED"
 	exit 1
@@ -24,7 +24,7 @@ echo ""
 echo "LPSTAT Enumeration Test"
 echo ""
 echo "    lpstat -e"
-printers="`$VALGRIND ../systemv/lpstat -e 2>&1`"
+printers="`$runcups $VALGRIND ../systemv/lpstat -e 2>&1`"
 if test $? != 0 -o "x$printers" = x; then
 	echo "    FAILED"
 	exit 1
@@ -39,7 +39,7 @@ echo ""
 echo "LPSTAT Get Host Test"
 echo ""
 echo "    lpstat -H"
-server="`$VALGRIND ../systemv/lpstat -H 2>&1`"
+server="`$runcups $VALGRIND ../systemv/lpstat -H 2>&1`"
 if test $? != 0 -o "x$server" != x$CUPS_SERVER; then
 	echo "    FAILED ($server)"
 	exit 1

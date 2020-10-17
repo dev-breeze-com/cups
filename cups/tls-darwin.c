@@ -1,10 +1,11 @@
 /*
  * TLS support code for CUPS on macOS.
  *
- * Copyright © 2007-2018 by Apple Inc.
+ * Copyright © 2007-2019 by Apple Inc.
  * Copyright © 1997-2007 by Easy Software Products, all rights reserved.
  *
- * Licensed under Apache License v2.0.  See the file "LICENSE" for more information.
+ * Licensed under Apache License v2.0.  See the file "LICENSE" for more
+ * information.
  */
 
 /**** This file is included from tls.c ****/
@@ -14,9 +15,7 @@
  */
 
 #include <spawn.h>
-
-extern char **environ; /* @private@ */
-
+#include "tls-darwin.h"
 
 /*
  * Constants, very secure stuff...
@@ -34,7 +33,7 @@ static int		tls_auto_create = 0;
 					/* Auto-create self-signed certs? */
 static char		*tls_common_name = NULL;
 					/* Default common name */
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
 static int		tls_cups_keychain = 0;
 					/* Opened the CUPS keychain? */
 static SecKeychainRef	tls_keychain = NULL;
@@ -42,7 +41,7 @@ static SecKeychainRef	tls_keychain = NULL;
 #else
 static SecIdentityRef	tls_selfsigned = NULL;
 					/* Temporary self-signed cert */
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
 static char		*tls_keypath = NULL;
 					/* Server cert keychain path */
 static _cups_mutex_t	tls_mutex = _CUPS_MUTEX_INITIALIZER;
@@ -58,11 +57,11 @@ static int		tls_options = -1,/* Options for TLS connections */
 
 static CFArrayRef	http_cdsa_copy_server(const char *common_name);
 static SecCertificateRef http_cdsa_create_credential(http_credential_t *credential);
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
 static const char	*http_cdsa_default_path(char *buffer, size_t bufsize);
 static SecKeychainRef	http_cdsa_open_keychain(const char *path, char *filename, size_t filesize);
 static SecKeychainRef	http_cdsa_open_system_keychain(void);
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
 static OSStatus		http_cdsa_read(SSLConnectionRef connection, void *data, size_t *dataLength);
 static int		http_cdsa_set_credentials(http_t *http);
 static OSStatus		http_cdsa_write(SSLConnectionRef connection, const void *data, size_t *dataLength);
@@ -82,7 +81,107 @@ cupsMakeServerCredentials(
     const char **alt_names,		/* I - Subject Alternate Names */
     time_t     expiration_date)		/* I - Expiration date */
 {
-#if defined(HAVE_SECGENERATESELFSIGNEDCERTIFICATE)
+#if TARGET_OS_OSX
+  int		pid,			/* Process ID of command */
+		status,			/* Status of command */
+		i;			/* Looping var */
+  char		command[1024],		/* Command */
+		*argv[5],		/* Command-line arguments */
+		*envp[1000],		/* Environment variables */
+		days[32],		/* CERTTOOL_EXPIRATION_DAYS env var */
+		keychain[1024],		/* Keychain argument */
+		infofile[1024],		/* Type-in information for cert */
+		filename[1024];		/* Default keychain path */
+  cups_file_t	*fp;			/* Seed/info file */
+
+
+  DEBUG_printf(("cupsMakeServerCredentials(path=\"%s\", common_name=\"%s\", num_alt_names=%d, alt_names=%p, expiration_date=%d)", path, common_name, num_alt_names, (void *)alt_names, (int)expiration_date));
+
+  (void)num_alt_names;
+  (void)alt_names;
+
+  if (!path)
+    path = http_cdsa_default_path(filename, sizeof(filename));
+
+ /*
+  * Run the "certtool" command to generate a self-signed certificate...
+  */
+
+  if (!cupsFileFind("certtool", getenv("PATH"), 1, command, sizeof(command)))
+    return (-1);
+
+ /*
+  * Create a file with the certificate information fields...
+  *
+  * Note: This assumes that the default questions are asked by the certtool
+  * command...
+  */
+
+ if ((fp = cupsTempFile2(infofile, sizeof(infofile))) == NULL)
+    return (-1);
+
+  cupsFilePrintf(fp,
+		 "CUPS Self-Signed Certificate\n"
+					/* Enter key and certificate label */
+		 "r\n"			/* Generate RSA key pair */
+		 "2048\n"		/* 2048 bit encryption key */
+		 "y\n"			/* OK (y = yes) */
+		 "b\n"			/* Usage (b=signing/encryption) */
+		 "2\n"			/* Sign with SHA256 */
+		 "y\n"			/* OK (y = yes) */
+		 "%s\n"			/* Common name */
+		 "\n"			/* Country (default) */
+		 "\n"			/* Organization (default) */
+		 "\n"			/* Organizational unit (default) */
+		 "\n"			/* State/Province (default) */
+		 "\n"			/* Email address */
+		 "y\n",			/* OK (y = yes) */
+		 common_name);
+  cupsFileClose(fp);
+
+  snprintf(keychain, sizeof(keychain), "k=%s", path);
+
+  argv[0] = "certtool";
+  argv[1] = "c";
+  argv[2] = keychain;
+  argv[3] = NULL;
+
+  snprintf(days, sizeof(days), "CERTTOOL_EXPIRATION_DAYS=%d", (int)((expiration_date - time(NULL) + 86399) / 86400));
+  envp[0] = days;
+  for (i = 0; i < (int)(sizeof(envp) / sizeof(envp[0]) - 2) && environ[i]; i ++)
+    envp[i + 1] = environ[i];
+  envp[i] = NULL;
+
+  posix_spawn_file_actions_t actions;	/* File actions */
+
+  posix_spawn_file_actions_init(&actions);
+  posix_spawn_file_actions_addclose(&actions, 0);
+  posix_spawn_file_actions_addopen(&actions, 0, infofile, O_RDONLY, 0);
+  posix_spawn_file_actions_addclose(&actions, 1);
+  posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
+  posix_spawn_file_actions_addclose(&actions, 2);
+  posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
+
+  if (posix_spawn(&pid, command, &actions, NULL, argv, envp))
+  {
+    unlink(infofile);
+    return (-1);
+  }
+
+  posix_spawn_file_actions_destroy(&actions);
+
+  unlink(infofile);
+
+  while (waitpid(pid, &status, 0) < 0)
+    if (errno != EINTR)
+    {
+      status = -1;
+      break;
+    }
+
+  return (!status);
+
+#else
   int			status = 0;	/* Return status */
   OSStatus		err;		/* Error code (if any) */
   CFStringRef		cfcommon_name = NULL;
@@ -240,107 +339,7 @@ cleanup:
   DEBUG_printf(("1cupsMakeServerCredentials: Returning %d.", status));
 
   return (status);
-
-#else /* !HAVE_SECGENERATESELFSIGNEDCERTIFICATE */
-  int		pid,			/* Process ID of command */
-		status,			/* Status of command */
-		i;			/* Looping var */
-  char		command[1024],		/* Command */
-		*argv[5],		/* Command-line arguments */
-		*envp[1000],		/* Environment variables */
-		days[32],		/* CERTTOOL_EXPIRATION_DAYS env var */
-		keychain[1024],		/* Keychain argument */
-		infofile[1024],		/* Type-in information for cert */
-		filename[1024];		/* Default keychain path */
-  cups_file_t	*fp;			/* Seed/info file */
-
-
-  DEBUG_printf(("cupsMakeServerCredentials(path=\"%s\", common_name=\"%s\", num_alt_names=%d, alt_names=%p, expiration_date=%d)", path, common_name, num_alt_names, (void *)alt_names, (int)expiration_date));
-
-  (void)num_alt_names;
-  (void)alt_names;
-
-  if (!path)
-    path = http_cdsa_default_path(filename, sizeof(filename));
-
- /*
-  * Run the "certtool" command to generate a self-signed certificate...
-  */
-
-  if (!cupsFileFind("certtool", getenv("PATH"), 1, command, sizeof(command)))
-    return (-1);
-
- /*
-  * Create a file with the certificate information fields...
-  *
-  * Note: This assumes that the default questions are asked by the certtool
-  * command...
-  */
-
- if ((fp = cupsTempFile2(infofile, sizeof(infofile))) == NULL)
-    return (-1);
-
-  cupsFilePrintf(fp,
-                 "CUPS Self-Signed Certificate\n"
-		 			/* Enter key and certificate label */
-                 "r\n"			/* Generate RSA key pair */
-                 "2048\n"		/* 2048 bit encryption key */
-                 "y\n"			/* OK (y = yes) */
-                 "b\n"			/* Usage (b=signing/encryption) */
-                 "2\n"			/* Sign with SHA256 */
-                 "y\n"			/* OK (y = yes) */
-                 "%s\n"			/* Common name */
-                 "\n"			/* Country (default) */
-                 "\n"			/* Organization (default) */
-                 "\n"			/* Organizational unit (default) */
-                 "\n"			/* State/Province (default) */
-                 "\n"			/* Email address */
-                 "y\n",			/* OK (y = yes) */
-        	 common_name);
-  cupsFileClose(fp);
-
-  snprintf(keychain, sizeof(keychain), "k=%s", path);
-
-  argv[0] = "certtool";
-  argv[1] = "c";
-  argv[2] = keychain;
-  argv[3] = NULL;
-
-  snprintf(days, sizeof(days), "CERTTOOL_EXPIRATION_DAYS=%d", (int)((expiration_date - time(NULL) + 86399) / 86400));
-  envp[0] = days;
-  for (i = 0; i < (int)(sizeof(envp) / sizeof(envp[0]) - 2) && environ[i]; i ++)
-    envp[i + 1] = environ[i];
-  envp[i] = NULL;
-
-  posix_spawn_file_actions_t actions;	/* File actions */
-
-  posix_spawn_file_actions_init(&actions);
-  posix_spawn_file_actions_addclose(&actions, 0);
-  posix_spawn_file_actions_addopen(&actions, 0, infofile, O_RDONLY, 0);
-  posix_spawn_file_actions_addclose(&actions, 1);
-  posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
-  posix_spawn_file_actions_addclose(&actions, 2);
-  posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
-
-  if (posix_spawn(&pid, command, &actions, NULL, argv, envp))
-  {
-    unlink(infofile);
-    return (-1);
-  }
-
-  posix_spawn_file_actions_destroy(&actions);
-
-  unlink(infofile);
-
-  while (waitpid(pid, &status, 0) < 0)
-    if (errno != EINTR)
-    {
-      status = -1;
-      break;
-    }
-
-  return (!status);
-#endif /* HAVE_SECGENERATESELFSIGNEDCERTIFICATE && HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
 }
 
 
@@ -361,7 +360,7 @@ cupsSetServerCredentials(
 {
   DEBUG_printf(("cupsSetServerCredentials(path=\"%s\", common_name=\"%s\", auto_create=%d)", path, common_name, auto_create));
 
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
   char		filename[1024];		/* Keychain filename */
   SecKeychainRef keychain = http_cdsa_open_keychain(path, filename, sizeof(filename));
 
@@ -411,7 +410,7 @@ cupsSetServerCredentials(
   tls_common_name = _cupsStrAlloc(common_name);
 
   return (1);
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
 }
 
 
@@ -806,8 +805,10 @@ httpCredentialsString(
     * issuer name is, um, "interesting"...
     */
 
-    CFStringRef		cf_string;	/* CF string */
+#  if TARGET_OS_OSX
     CFDictionaryRef	cf_dict;	/* Dictionary for certificate */
+#  endif /* TARGET_OS_OSX */
+    CFStringRef		cf_string;	/* CF string */
     char		commonName[256],/* Common name associated with cert */
 			issuer[256],	/* Issuer name */
 			sigalg[256];	/* Signature algorithm */
@@ -827,6 +828,7 @@ httpCredentialsString(
     strlcpy(issuer, "unknown", sizeof(issuer));
     strlcpy(sigalg, "UnknownSignature", sizeof(sigalg));
 
+#  if TARGET_OS_OSX
     if ((cf_dict = SecCertificateCopyValues(secCert, NULL, NULL)) != NULL)
     {
       CFDictionaryRef cf_issuer = CFDictionaryGetValue(cf_dict, kSecOIDX509V1IssuerName);
@@ -873,6 +875,7 @@ httpCredentialsString(
 
       CFRelease(cf_dict);
     }
+#  endif /* TARGET_OS_OSX */
 
     expiration = (time_t)(SecCertificateNotValidAfter(secCert) + kCFAbsoluteTimeIntervalSince1970);
 
@@ -917,12 +920,12 @@ httpLoadCredentials(
     const char   *common_name)		/* I  - Common name for credentials */
 {
   OSStatus		err;		/* Error info */
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
   char			filename[1024];	/* Filename for keychain */
   SecKeychainRef	keychain = NULL,/* Keychain reference */
 			syschain = NULL;/* System keychain */
   CFArrayRef		list;		/* Keychain list */
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
   SecCertificateRef	cert = NULL;	/* Certificate */
   CFDataRef		data;		/* Certificate data */
   SecPolicyRef		policy = NULL;	/* Policy ref */
@@ -938,7 +941,7 @@ httpLoadCredentials(
 
   *credentials = NULL;
 
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
   keychain = http_cdsa_open_keychain(path, filename, sizeof(filename));
 
   if (!keychain)
@@ -949,7 +952,7 @@ httpLoadCredentials(
 #else
   if (path)
     return (-1);
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
 
   cfcommon_name = CFStringCreateWithCString(kCFAllocatorDefault, common_name, kCFStringEncodingUTF8);
 
@@ -969,7 +972,7 @@ httpLoadCredentials(
   CFDictionaryAddValue(query, kSecReturnRef, kCFBooleanTrue);
   CFDictionaryAddValue(query, kSecMatchLimit, kSecMatchLimitOne);
 
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
   if (syschain)
   {
     const void *values[2] = { syschain, keychain };
@@ -980,7 +983,7 @@ httpLoadCredentials(
     list = CFArrayCreate(kCFAllocatorDefault, (const void **)&keychain, 1, &kCFTypeArrayCallBacks);
   CFDictionaryAddValue(query, kSecMatchSearchList, list);
   CFRelease(list);
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
 
   err = SecItemCopyMatching(query, (CFTypeRef *)&cert);
 
@@ -1001,13 +1004,13 @@ httpLoadCredentials(
 
   cleanup :
 
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
   if (keychain)
     CFRelease(keychain);
 
   if (syschain)
     CFRelease(syschain);
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
   if (cert)
     CFRelease(cert);
   if (policy)
@@ -1035,11 +1038,11 @@ httpSaveCredentials(
 {
   int			ret = -1;	/* Return value */
   OSStatus		err;		/* Error info */
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
   char			filename[1024];	/* Filename for keychain */
   SecKeychainRef	keychain = NULL;/* Keychain reference */
   CFArrayRef		list;		/* Keychain list */
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
   SecCertificateRef	cert = NULL;	/* Certificate */
   CFMutableDictionaryRef attrs = NULL;	/* Attributes for add */
 
@@ -1060,7 +1063,7 @@ httpSaveCredentials(
     goto cleanup;
   }
 
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
   keychain = http_cdsa_open_keychain(path, filename, sizeof(filename));
 
   if (!keychain)
@@ -1069,7 +1072,7 @@ httpSaveCredentials(
 #else
   if (path)
     return (-1);
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
 
   if ((attrs = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks)) == NULL)
   {
@@ -1080,7 +1083,7 @@ httpSaveCredentials(
   CFDictionaryAddValue(attrs, kSecClass, kSecClassCertificate);
   CFDictionaryAddValue(attrs, kSecValueRef, cert);
 
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
   if ((list = CFArrayCreate(kCFAllocatorDefault, (const void **)&keychain, 1, &kCFTypeArrayCallBacks)) == NULL)
   {
     DEBUG_puts("1httpSaveCredentials: Unable to create list of keychains.");
@@ -1088,7 +1091,7 @@ httpSaveCredentials(
   }
   CFDictionaryAddValue(attrs, kSecMatchSearchList, list);
   CFRelease(list);
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
 
   /* Note: SecItemAdd consumes "attrs"... */
   err = SecItemAdd(attrs, NULL);
@@ -1096,10 +1099,10 @@ httpSaveCredentials(
 
   cleanup :
 
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
   if (keychain)
     CFRelease(keychain);
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
   if (cert)
     CFRelease(cert);
 
@@ -1219,6 +1222,7 @@ _httpTLSStart(http_t *http)		/* I - HTTP connection */
 					/* Pointer to library globals */
   OSStatus		error;		/* Error code */
   const char		*message = NULL;/* Error message */
+  char			msgbuf[1024];	/* Error message buffer */
   cups_array_t		*credentials;	/* Credentials array */
   cups_array_t		*names;		/* CUPS distinguished names */
   CFArrayRef		dn_array;	/* CF distinguished names array */
@@ -1237,7 +1241,7 @@ _httpTLSStart(http_t *http)		/* I - HTTP connection */
     DEBUG_printf(("4_httpTLSStart: tls_options=%x, tls_min_version=%d, tls_max_version=%d", tls_options, tls_min_version, tls_max_version));
   }
 
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
   if (http->mode == _HTTP_MODE_SERVER && !tls_keychain)
   {
     DEBUG_puts("4_httpTLSStart: cupsSetServerCredentials not called.");
@@ -1247,7 +1251,7 @@ _httpTLSStart(http_t *http)		/* I - HTTP connection */
 
     return (-1);
   }
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
 
   if ((http->tls = SSLCreateContext(kCFAllocatorDefault, http->mode == _HTTP_MODE_CLIENT ? kSSLClientSide : kSSLServerSide, kSSLStreamType)) == NULL)
   {
@@ -1299,7 +1303,6 @@ _httpTLSStart(http_t *http)		/* I - HTTP connection */
     }
   }
 
-#  if HAVE_SSLSETENABLEDCIPHERS
   if (!error)
   {
     SSLCipherSuite	supported[100];	/* Supported cipher suites */
@@ -1459,7 +1462,6 @@ _httpTLSStart(http_t *http)		/* I - HTTP connection */
       error = SSLSetEnabledCiphers(http->tls, enabled, num_enabled);
     }
   }
-#endif /* HAVE_SSLSETENABLEDCIPHERS */
 
   if (!error && http->mode == _HTTP_MODE_CLIENT)
   {
@@ -1759,11 +1761,13 @@ _httpTLSStart(http_t *http)		/* I - HTTP connection */
     */
 
     if (!message)
-#ifdef HAVE_CSSMERRORSTRING
-      message = cssmErrorString(error);
-#else
-      message = _("Unable to establish a secure connection to host.");
-#endif /* HAVE_CSSMERRORSTRING */
+    {
+      if (!cg->lang_default)
+        cg->lang_default = cupsLangDefault();
+
+      snprintf(msgbuf, sizeof(msgbuf), _cupsLangString(cg->lang_default, _("Unable to establish a secure connection to host (%d).")), error);
+      message = msgbuf;
+    }
 
     _cupsSetError(IPP_STATUS_ERROR_CUPS_PKI, message, 1);
 
@@ -1858,7 +1862,7 @@ static CFArrayRef			/* O - Array of certificates or NULL */
 http_cdsa_copy_server(
     const char *common_name)		/* I - Server's hostname */
 {
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
   OSStatus		err;		/* Error info */
   SecIdentityRef	identity = NULL;/* Identity */
   CFArrayRef		certificates = NULL;
@@ -1956,11 +1960,13 @@ http_cdsa_copy_server(
   return (certificates);
 #else
 
+  (void)common_name;
+
   if (!tls_selfsigned)
     return (NULL);
 
   return (CFArrayCreate(NULL, (const void **)&tls_selfsigned, 1, &kCFTypeArrayCallBacks));
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
 }
 
 
@@ -1972,14 +1978,22 @@ static SecCertificateRef			/* O - Certificate */
 http_cdsa_create_credential(
     http_credential_t *credential)		/* I - Credential */
 {
+  SecCertificateRef	cert;			/* Certificate */
+  CFDataRef		data;			/* Data object */
+
+
   if (!credential)
     return (NULL);
 
-  return (SecCertificateCreateWithBytes(kCFAllocatorDefault, credential->data, (CFIndex)credential->datalen));
+  data = CFDataCreate(kCFAllocatorDefault, credential->data, (CFIndex)credential->datalen);
+  cert = SecCertificateCreateWithData(kCFAllocatorDefault, data);
+  CFRelease(data);
+
+  return (cert);
 }
 
 
-#ifdef HAVE_SECKEYCHAINOPEN
+#if TARGET_OS_OSX
 /*
  * 'http_cdsa_default_path()' - Get the default keychain path.
  */
@@ -1988,7 +2002,8 @@ static const char *			/* O - Keychain path */
 http_cdsa_default_path(char   *buffer,	/* I - Path buffer */
                        size_t bufsize)	/* I - Size of buffer */
 {
-  const char *home = getenv("HOME");	/* HOME environment variable */
+  _cups_globals_t	*cg = _cupsGlobals();
+					/* Pointer to library globals */
 
 
  /*
@@ -1997,8 +2012,8 @@ http_cdsa_default_path(char   *buffer,	/* I - Path buffer */
   * 10.11.4 (!), so we need to create our own keychain just for CUPS.
   */
 
-  if (getuid() && home)
-    snprintf(buffer, bufsize, "%s/.cups/ssl.keychain", home);
+  if (cg->home)
+    snprintf(buffer, bufsize, "%s/.cups/ssl.keychain", cg->home);
   else
     strlcpy(buffer, "/etc/cups/ssl.keychain", bufsize);
 
@@ -2155,7 +2170,7 @@ http_cdsa_open_system_keychain(void)
 
   return (keychain);
 }
-#endif /* HAVE_SECKEYCHAINOPEN */
+#endif /* TARGET_OS_OSX */
 
 
 /*

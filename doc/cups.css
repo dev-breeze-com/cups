@@ -79,6 +79,7 @@
   float: left;
   margin-left: 0.5%;
   margin-right: 0;
+  padding-bottom: 40px;
   width: 33%;
 }
 .row .thirds:first-child {
@@ -89,6 +90,7 @@
   float: left;
   margin-left: 0.5%;
   margin-right: 0;
+  padding-bottom: 40px;
   width: 49.75%;
 }
 .row .halves:first-child {
@@ -112,6 +114,11 @@ BODY {
 H1, H2, H3, H4, H5, H6, P, TD, TH {
   font-family: lucida grande, geneva, helvetica, arial, sans-serif;
 }
+
+H1 { font-size: 2em; }
+H2 { font-size: 1.75em; }
+H3 { font-size: 1.5em; }
+H4 { font-size: 1.25em; }
 
 KBD {
   color: #006600;

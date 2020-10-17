@@ -1,7 +1,7 @@
 /*
  * PPD code emission routines for CUPS.
  *
- * Copyright 2007-2015 by Apple Inc.
+ * Copyright 2007-2019 by Apple Inc.
  * Copyright 1997-2007 by Easy Software Products, all rights reserved.
  *
  * Licensed under Apache License v2.0.  See the file "LICENSE" for more
@@ -15,12 +15,13 @@
  */
 
 #include "cups-private.h"
+#include "debug-internal.h"
 #include "ppd.h"
-#if defined(WIN32) || defined(__EMX__)
+#if defined(_WIN32) || defined(__EMX__)
 #  include <io.h>
 #else
 #  include <unistd.h>
-#endif /* WIN32 || __EMX__ */
+#endif /* _WIN32 || __EMX__ */
 
 
 /*
@@ -323,11 +324,11 @@ ppdEmitFd(ppd_file_t    *ppd,		/* I - PPD file record */
 
     while (buflength > 0)
     {
-#ifdef WIN32
+#ifdef _WIN32
       if ((bytes = (ssize_t)write(fd, bufptr, (unsigned)buflength)) < 0)
 #else
       if ((bytes = write(fd, bufptr, buflength)) < 0)
-#endif /* WIN32 */
+#endif /* _WIN32 */
       {
         if (errno == EAGAIN || errno == EINTR)
 	  continue;
@@ -440,6 +441,9 @@ ppdEmitJCL(ppd_file_t *ppd,		/* I - PPD file record */
     * Clean up the job title...
     */
 
+    if (!title)
+      title = "Unknown";
+
     if ((ptr = strrchr(title, '/')) != NULL)
     {
      /*
@@ -488,6 +492,9 @@ ppdEmitJCL(ppd_file_t *ppd,		/* I - PPD file record */
     * Generate the display message, truncating at 32 characters + nul to avoid
     * issues with some printer's PJL implementations...
     */
+
+    if (!user)
+      user = "anonymous";
 
     snprintf(displaymsg, sizeof(displaymsg), "%d %s %s", job_id, user, temp);
 
@@ -657,6 +664,9 @@ ppdEmitString(ppd_file_t    *ppd,	/* I - PPD file record */
 	{
           switch (cparam->type)
 	  {
+	    case PPD_CUSTOM_UNKNOWN :
+	        break;
+
 	    case PPD_CUSTOM_CURVE :
 	    case PPD_CUSTOM_INVCURVE :
 	    case PPD_CUSTOM_POINTS :
@@ -703,6 +713,9 @@ ppdEmitString(ppd_file_t    *ppd,	/* I - PPD file record */
 	{
           switch (cparam->type)
 	  {
+	    case PPD_CUSTOM_UNKNOWN :
+	        break;
+
 	    case PPD_CUSTOM_CURVE :
 	    case PPD_CUSTOM_INVCURVE :
 	    case PPD_CUSTOM_POINTS :
@@ -798,6 +811,9 @@ ppdEmitString(ppd_file_t    *ppd,	/* I - PPD file record */
 	      {
 	        switch (cparam->type)
 		{
+		  case PPD_CUSTOM_UNKNOWN :
+		      break;
+
 		  case PPD_CUSTOM_CURVE :
 		  case PPD_CUSTOM_INVCURVE :
 		  case PPD_CUSTOM_POINTS :
@@ -831,7 +847,7 @@ ppdEmitString(ppd_file_t    *ppd,	/* I - PPD file record */
 	    *bufptr++ = *cptr++;
 	}
       }
-      else
+      else if (choices[i]->code)
       {
        /*
         * Otherwise just copy the option code directly...
@@ -1000,6 +1016,9 @@ ppdEmitString(ppd_file_t    *ppd,	/* I - PPD file record */
 	{
           switch (cparam->type)
 	  {
+	    case PPD_CUSTOM_UNKNOWN :
+	        break;
+
 	    case PPD_CUSTOM_CURVE :
 	    case PPD_CUSTOM_INVCURVE :
 	    case PPD_CUSTOM_POINTS :
@@ -1064,7 +1083,7 @@ ppdEmitString(ppd_file_t    *ppd,	/* I - PPD file record */
       DEBUG_printf(("2ppdEmitString: Offset in string is %d...",
                     (int)(bufptr - buffer)));
     }
-    else
+    else if (choices[i]->code)
     {
       strlcpy(bufptr, choices[i]->code, (size_t)(bufend - bufptr + 1));
       bufptr += strlen(bufptr);

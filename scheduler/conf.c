@@ -729,14 +729,14 @@ cupsdReadConfiguration(void)
   MaxClientsPerHost        = 0;
   MaxLogSize               = 1024 * 1024;
   MaxRequestSize           = 0;
-  MultipleOperationTimeout = DEFAULT_TIMEOUT;
+  MultipleOperationTimeout = 900;
   NumSystemGroups          = 0;
   ReloadTimeout	           = DEFAULT_KEEPALIVE;
   RootCertDuration         = 300;
   Sandboxing               = CUPSD_SANDBOXING_STRICT;
   StrictConformance        = FALSE;
   SyncOnClose              = FALSE;
-  Timeout                  = DEFAULT_TIMEOUT;
+  Timeout                  = 900;
   WebInterface             = CUPS_DEFAULT_WEBIF;
 
   BrowseLocalProtocols     = parse_protocols(CUPS_DEFAULT_BROWSE_LOCAL_PROTOCOLS);
@@ -3573,10 +3573,7 @@ read_cups_files_conf(cups_file_t *fp)	/* I - File to read from */
       */
 
       if (!_cups_strcasecmp(value, "off") && getuid())
-      {
         Sandboxing = CUPSD_SANDBOXING_OFF;
-        cupsdLogMessage(CUPSD_LOG_WARN, "Disabling sandboxing is not recommended (line %d of %s)", linenum, CupsFilesFile);
-      }
       else if (!_cups_strcasecmp(value, "relaxed"))
         Sandboxing = CUPSD_SANDBOXING_RELAXED;
       else if (!_cups_strcasecmp(value, "strict"))
